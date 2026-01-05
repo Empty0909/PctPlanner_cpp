@@ -1,0 +1,31 @@
+# build artifacts
+build/
+install/
+log/
+.colcon*
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+*.make
+*.ninja
+*.o
+*.obj
+*.ptx
+
+# generated maps / outputs
+*.pcd
+*.bin
+*.pickle
+*.log
+
+# python / editor
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+.DS_Store
+
+# third-party build leftovers
+planner_lib/3rdparty/**/build/
+# keep vendored installs committed (gtsam install) to avoid rebuild
+planner_lib/build/
