@@ -4,7 +4,7 @@ CUDA-based point cloud tomography + global path planner, fully in C++ for ROS2 F
 
 ## What it does (principle)
 
-- **Tomography**: consume `/global_points` point clouds, build a 3D grid (trav cost, gradients, ground/ceiling heights). Uses slice simplification identical to the original CuPy pipeline, publishes fp16 binary tomogram and a surface-only visualization.
+- **Tomography**: consume `/global_points` point clouds, build a 3D grid (trav cost, gradients, ground/ceiling heights). Uses slice simplification identical to the original CuPy pipeline, publishes binary tomogram with selectable precision (fp16/fp32) and a surface-only visualization.
 - **Online planner** (`planner_node`): listens to `/tomogram_data` + `/start_pos` + `/end_pos`, runs A*/trajectory optimizer, outputs `/pct_path` and an ASCII PCD.
 - **Offline planner** (`planner_direct_node`): loads a tomogram file (`tomo_path`), waits for start/end, publishes `/pct_path2` and ASCII PCD; re-publishes periodically for RViz.
 - **Utilities**: sample point-cloud publisher (`pcd_publisher`) and a tiny smoke test.
@@ -53,7 +53,7 @@ CUDA-based point cloud tomography + global path planner, fully in C++ for ROS2 F
    rviz2 -d $PWD/rsc/rviz/pct_ros.rviz
    ```
 
-6) One-click launch (build tomogram, optionally plan, and publish sample cloud). A default parameter file aligned with the original scene.py is at `config/scene_default.yaml`:
+6) One-click launch (build tomogram, optionally plan, and publish sample cloud). A default parameter file aligned with the original scene.py is at `config/scene_default.yaml` (see **Precision modes** if you need float32 maps):
 
    ```bash
    ros2 launch pct_planner_cpp_port pct_all.launch.py \
@@ -76,6 +76,7 @@ CUDA-based point cloud tomography + global path planner, fully in C++ for ROS2 F
 - `enable_planner` / `enable_planner_direct` / `enable_pcd_publisher`
 - `publish_start_end` with `start_x/y/z`, `end_x/y/z`
 - `surface_only` (tomography_node): default true for surface visualization; false publishes full volume (very dense)
+- `precision_mode` (tomography_node): `float16` (default) or `float32` to control on-wire tomogram precision
 - `use_quintic`, `max_heading_rate` (planner trajectory options)
 - `params_file`: YAML for tomography_node (defaults match original scene.py; see `config/scene_default.yaml`)
 
@@ -110,13 +111,11 @@ ros2 launch pct_planner_cpp_port pct_all.launch.py \
 
 - Keep `publish_start_end:=false`, then run `ros2 topic pub --once /start_pos ...` and `/end_pos ...` when ready.
 
-## Minimal smoke test
+## Precision modes
 
-```bash
-cd ~/PctPlanner_Cpp
-source install/setup.bash
-./install/pct_planner_cpp_port/lib/pct_planner_cpp_port/test_planner_smoke
-```
+- Tomogram headers now carry a `precision_mode` flag so planners know whether payload values are fp16 or fp32. The default stay-on-the-wire size is fp32.
+- To force 32-bit floats (higher fidelity at twice the size) pass `precision_mode:=float32` when launching `tomography_node`, or edit `config/scene_default.yaml` (`pct_tomography_cpp.ros__parameters.precision_mode`).
+- Any new `.bin` produced with fp32 still loads transparently in the C++ planners; older fp16 binaries keep working. After changing precision you must regenerate the tomogram once because the file format changed.
 
 ## Tips & troubleshooting
 

@@ -1,12 +1,14 @@
 // 文件作用：订阅 /global_points 点云，GPU（CUDA）生成
-// tomogram（膨胀代价/梯度/地面/顶部高程），序列化 float16 发布
-// /tomogram_data，并写入磁盘；可视化膨胀后代价、梯度、间隙。
+// tomogram（膨胀代价/梯度/地面/顶部高程），按可配置精度（float16/float32）
+// 序列化发布 /tomogram_data 并写入磁盘；可视化膨胀后代价、梯度、间隙。
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -46,6 +48,8 @@ public:
         inflation_(declare_parameter<double>("inflation", 0.2)),
         kernel_size_(declare_parameter<int>("kernel_size", 7)),
         map_frame_(declare_parameter<std::string>("map_frame", "map")),
+        precision_mode_(ResolvePrecisionMode(
+            declare_parameter<std::string>("precision_mode", "float32"))),
         surface_only_(declare_parameter<bool>("surface_only", true)),
         published_(false) {
     tomogram_pub_ =
@@ -114,10 +118,6 @@ private:
     const float cx = 0.5f * (pmax.x() + pmin.x());
     const float cy = 0.5f * (pmax.y() + pmin.y());
 
-    TomogramHeader header = tomogram_format::MakeHeader(
-        n_slice, dim_x, dim_y, static_cast<float>(resolution_), cx, cy,
-        slice_h0, slice_dh);
-
     // 记录地图范围，便于设置起终点：中心/尺寸/分辨率/切片高度
     RCLCPP_INFO(
         get_logger(),
@@ -127,11 +127,9 @@ private:
         static_cast<float>(resolution_), dim_x, dim_y, n_slice, slice_h0,
         slice_dh);
 
-    std::vector<uint16_t> slice_heights_fp16(n_slice);
     std::vector<float> slice_heights_f32(n_slice);
     for (uint32_t i = 0; i < n_slice; ++i) {
       float h = slice_h0 + slice_dh * static_cast<float>(i);
-      slice_heights_fp16[i] = Float32ToFp16(h);
       slice_heights_f32[i] = h;
     }
 
@@ -254,21 +252,17 @@ private:
     // 序列化 tomogram（简化后的层）
     TomogramHeader simp_header = tomogram_format::MakeHeader(
         simp_layers, dim_x, dim_y, static_cast<float>(resolution_), cx, cy,
-        slice_heights_simp.front(), slice_dh);
+        slice_heights_simp.front(), slice_dh, precision_mode_);
 
-    std::vector<uint16_t> slice_heights_fp16_simp(simp_layers);
-    for (size_t i = 0; i < slice_heights_simp.size(); ++i) {
-      slice_heights_fp16_simp[i] = Float32ToFp16(slice_heights_simp[i]);
-    }
+    std::vector<uint8_t> slice_heights_raw;
+    EncodeScalars(slice_heights_simp, precision_mode_, slice_heights_raw);
 
-    const size_t total_voxels = static_cast<size_t>(simp_layers) * plane *
-                                tomogram_format::kLayersPerVoxel;
-    std::vector<uint16_t> data_fp16(total_voxels, 0);
+    std::vector<uint8_t> data_bytes;
     FillTomogramPayload(simp_layers, dim_x, dim_y, trav_simp, trav_gx, trav_gy,
-                        elev_g_simp, elev_c_simp, data_fp16);
+                        elev_g_simp, elev_c_simp, precision_mode_, data_bytes);
 
-    std::vector<uint8_t> payload = tomogram_format::Serialize(
-        simp_header, slice_heights_fp16_simp, data_fp16);
+    std::vector<uint8_t> payload =
+        tomogram_format::Serialize(simp_header, slice_heights_raw, data_bytes);
 
     std_msgs::msg::ByteMultiArray msg_out;
     msg_out.data.assign(payload.begin(), payload.end());
@@ -309,6 +303,37 @@ private:
     return bits;
   }
 
+  static tomogram_format::PrecisionMode
+  ResolvePrecisionMode(const std::string &mode_str) {
+    std::string lower = mode_str;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (lower == "float32" || lower == "fp32" || lower == "f32") {
+      return tomogram_format::PrecisionMode::FLOAT32;
+    }
+    if (lower == "float16" || lower == "fp16" || lower == "f16") {
+      return tomogram_format::PrecisionMode::FLOAT16;
+    }
+    throw std::runtime_error("Unsupported precision_mode: " + mode_str);
+  }
+
+  static void EncodeScalars(const std::vector<float> &values,
+                            tomogram_format::PrecisionMode mode,
+                            std::vector<uint8_t> &out) {
+    const size_t bytes = tomogram_format::ScalarBytes(mode);
+    out.resize(values.size() * bytes);
+    for (size_t i = 0; i < values.size(); ++i) {
+      uint8_t *dst = out.data() + i * bytes;
+      if (mode == tomogram_format::PrecisionMode::FLOAT32) {
+        float val = values[i];
+        std::memcpy(dst, &val, sizeof(float));
+      } else {
+        uint16_t bits = Float32ToFp16(values[i]);
+        std::memcpy(dst, &bits, sizeof(uint16_t));
+      }
+    }
+  }
+
   void ComputeTravGradient(uint32_t n_slice, uint32_t dim_x, uint32_t dim_y,
                            const std::vector<float> &cost,
                            std::vector<float> &gx, std::vector<float> &gy) {
@@ -331,19 +356,39 @@ private:
                            const std::vector<float> &gy,
                            const std::vector<float> &ground,
                            const std::vector<float> &ceiling,
-                           std::vector<uint16_t> &data_fp16) {
+                           tomogram_format::PrecisionMode mode,
+                           std::vector<uint8_t> &data_bytes) {
     const size_t plane = static_cast<size_t>(dim_x) * dim_y;
-    const size_t layer_stride = static_cast<size_t>(n_slice) * plane;
+    const size_t scalar_bytes = tomogram_format::ScalarBytes(mode);
+    const size_t layer_stride =
+        static_cast<size_t>(n_slice) * plane * scalar_bytes;
+    data_bytes.resize(static_cast<size_t>(n_slice) * plane *
+                      tomogram_format::kLayersPerVoxel * scalar_bytes);
+
+    auto write_value = [&](size_t idx_plane, size_t layer, float value) {
+      const size_t offset =
+          (idx_plane + layer * static_cast<size_t>(n_slice) * plane) *
+          scalar_bytes;
+      uint8_t *dst = data_bytes.data() + offset;
+      if (mode == tomogram_format::PrecisionMode::FLOAT32) {
+        float v = value;
+        std::memcpy(dst, &v, sizeof(float));
+      } else {
+        uint16_t bits = Float32ToFp16(value);
+        std::memcpy(dst, &bits, sizeof(uint16_t));
+      }
+    };
+
     for (uint32_t s = 0; s < n_slice; ++s) {
       const size_t offset = static_cast<size_t>(s) * plane;
       for (uint32_t y = 0; y < dim_y; ++y) {
         for (uint32_t x = 0; x < dim_x; ++x) {
           const size_t idx = offset + static_cast<size_t>(y) * dim_x + x;
-          data_fp16[idx + 0 * layer_stride] = Float32ToFp16(trav[idx]);
-          data_fp16[idx + 1 * layer_stride] = Float32ToFp16(gx[idx]);
-          data_fp16[idx + 2 * layer_stride] = Float32ToFp16(gy[idx]);
-          data_fp16[idx + 3 * layer_stride] = Float32ToFp16(ground[idx]);
-          data_fp16[idx + 4 * layer_stride] = Float32ToFp16(ceiling[idx]);
+          write_value(idx, 0, trav[idx]);
+          write_value(idx, 1, gx[idx]);
+          write_value(idx, 2, gy[idx]);
+          write_value(idx, 3, ground[idx]);
+          write_value(idx, 4, ceiling[idx]);
         }
       }
     }
@@ -556,6 +601,7 @@ private:
   double inflation_;
   int kernel_size_;
   std::string map_frame_;
+  tomogram_format::PrecisionMode precision_mode_;
   bool surface_only_;
   bool published_;
 };

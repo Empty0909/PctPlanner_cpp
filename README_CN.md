@@ -4,7 +4,7 @@
 
 ## 原理与功能
 
-- **断层建图**：订阅 `/global_points`，栅格化得到 trav 代价、梯度、地面/顶面高度，做与原 CuPy 版一致的切片简化，发布 fp16 二进制 tomogram 与“仅地面”可视化。
+- **断层建图**：订阅 `/global_points`，栅格化得到 trav 代价、梯度、地面/顶面高度，做与原 CuPy 版一致的切片简化，可选择 fp16/fp32 精度输出二进制 tomogram，并发布“仅地面”可视化。
 - **在线规划**（`planner_node`）：监听 `/tomogram_data` + `/start_pos` + `/end_pos`，A*+轨迹优化，输出 `/pct_path` 和 ASCII PCD。
 - **离线规划**（`planner_direct_node`）：从 `tomo_path` 直接读 tomogram，等起终点后规划，发布 `/pct_path2` 并周期重发，便于 RViz。
 - **工具**：示例点云发布器（`pcd_publisher`），最小冒烟测试。
@@ -53,7 +53,7 @@
    rviz2 -d $PWD/rsc/rviz/pct_ros.rviz
    ```
 
-6) 一键启动（建图 + 可选规划 + 示例点云）。默认参数文件（对齐原 scene.py）见 `config/scene_default.yaml`：
+6) 一键启动（建图 + 可选规划 + 示例点云）。默认参数文件（对齐原 scene.py，若需改精度见下文 **精度模式**）见 `config/scene_default.yaml`：
 
    ```bash
    ros2 launch pct_planner_cpp_port pct_all.launch.py \
@@ -64,6 +64,12 @@
      publish_start_end:=true \
      start_x:=5.63 start_y:=15 start_z:=0 \
      end_x:=-9.68 end_y:=6.95 end_z:=0
+
+   通过yaml文件直接设置参数
+   ros2 launch pct_planner_cpp_port pct_all.launch.py \
+     params_file:=/home/lzy/PctPlanner/PctPlanner_Cpp/config/scene_default.yaml \
+     start_x:=5.63 start_y:=15 start_z:=0 \
+     end_x:=-9.68 end_y:=6.95 end_z:=0
    ```
 
 ## Launch 开关（可组合）
@@ -71,6 +77,7 @@
 - `enable_planner` / `enable_planner_direct` / `enable_pcd_publisher`
 - `publish_start_end` 与 `start_x/y/z`、`end_x/y/z`
 - `surface_only`（tomography_node）：默认 true 仅发布地面，false 发布全体素（点数巨大）
+- `precision_mode`（tomography_node）：`float16`（默认）或 `float32`，控制 tomogram 精度与体积
 - `use_quintic`、`max_heading_rate`：轨迹优化配置
 - `params_file`：tomography_node 的 YAML 参数文件，默认与原 scene.py 数值一致（见 `config/scene_default.yaml`）
 
@@ -107,13 +114,11 @@ ros2 launch pct_planner_cpp_port pct_all.launch.py \
 ros2 topic pub --once /start_pos geometry_msgs/msg/Point "{x: 4.45, y: 21.4, z: -0.267}"
 ros2 topic pub --once /end_pos   geometry_msgs/msg/Point "{x: -8.03, y: 6.6, z: -0.153}"
 
-## 冒烟测试
+## 精度模式
 
-```bash
-cd ~/PctPlanner_Cpp
-source install/setup.bash
-./install/pct_planner_cpp_port/lib/pct_planner_cpp_port/test_planner_smoke
-```
+- tomogram 头部新增 `precision_mode` 标志，规划器会自动根据头信息解析 fp16 或 fp32 数据，默认为 fp32。
+- 若需要更高高度/代价保真度，可在 launch 中加入 `precision_mode:=float32` 或直接修改 `config/scene_default.yaml` 里的 `pct_tomography_cpp.ros__parameters.precision_mode`。
+- 切换精度后需要重新运行建图节点生成 `.bin`，新旧格式互不兼容；生成后的文件两种规划节点都能直接加载。
 
 ## 常见问题
 

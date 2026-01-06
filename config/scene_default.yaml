@@ -20,17 +20,18 @@ pct_tomography_cpp:
     # 其他
     map_frame: "map"       # 发布点云/可视化使用的坐标系
     surface_only: true      # true 只发布地面可视化，false 发布全体素（点数大）
-    output_path: "rsc/tomogram/scene_map.bin"  # tomogram 二进制输出路径
+    output_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin"  # tomogram 二进制输出路径
+    precision_mode: "float32"   # 可选 float16 / float32
 
 pct_planner_cpp:
   ros__parameters:
     use_quintic: true              # 轨迹优化是否使用五次多项式（平滑但约束更强）
     max_heading_rate: 10.0         # 最大航向角速度（deg/s），过小会限制转弯
-    pcd_path: "trajectory.pcd"    # 在线规划器输出的 ASCII PCD 路径
+    pcd_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/trajectory.pcd"    # 在线规划器输出的 ASCII PCD 路径
 
 pct_planner_direct_cpp:
   ros__parameters:
     use_quintic: true                    # 同上，离线规划器版本
     max_heading_rate: 10.0               # 同上
-    pcd_path: "trajectory_direct.pcd"   # 离线规划器输出的 ASCII PCD 路径
-    tomo_path: "rsc/tomogram/scene_map.bin"  # 离线规划读取的 tomogram 文件
+    pcd_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/trajectory.pcd"   # 离线规划器输出的 ASCII PCD 路径
+    tomo_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin"  # 离线规划读取的 tomogram 文件

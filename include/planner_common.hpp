@@ -38,11 +38,25 @@ inline float Fp16ToFloat(uint16_t bits) {
   return static_cast<float>(h);
 }
 
+inline double ReadScalar(const uint8_t *base, size_t offset,
+                         tomogram_format::PrecisionMode mode) {
+  if (mode == tomogram_format::PrecisionMode::FLOAT32) {
+    float value;
+    std::memcpy(&value, base + offset, sizeof(float));
+    return static_cast<double>(value);
+  }
+  uint16_t bits;
+  std::memcpy(&bits, base + offset, sizeof(uint16_t));
+  return static_cast<double>(Fp16ToFloat(bits));
+}
+
 // 反序列化 tomogram 二进制，填充 PlannerInput。
 inline void ParseTomogram(const std::vector<uint8_t> &buffer,
                           PlannerInput &out) {
   auto view = tomogram_format::Deserialize(buffer);
   const auto &h = view.header;
+  const auto mode = tomogram_format::GetPrecisionMode(h);
+  const size_t scalar_bytes = tomogram_format::ScalarBytes(mode);
   out.n_slice = h.n_slice;
   out.dim_x = h.dim_x;
   out.dim_y = h.dim_y;
@@ -52,7 +66,9 @@ inline void ParseTomogram(const std::vector<uint8_t> &buffer,
 
   out.slice_heights.resize(h.n_slice);
   for (uint32_t i = 0; i < h.n_slice; ++i) {
-    out.slice_heights[i] = Fp16ToFloat(view.slice_heights_fp16[i]);
+    const size_t offset = static_cast<size_t>(i) * scalar_bytes;
+    out.slice_heights[i] =
+        static_cast<float>(ReadScalar(view.slice_heights, offset, mode));
   }
 
   const size_t plane = static_cast<size_t>(h.dim_x) * h.dim_y;
@@ -64,16 +80,19 @@ inline void ParseTomogram(const std::vector<uint8_t> &buffer,
   out.elev_c.resize(rows, h.dim_x);
   out.gateway.resize(rows, h.dim_x);
 
-  const size_t layer_stride = static_cast<size_t>(h.n_slice) * plane;
+  const size_t layer_stride =
+      static_cast<size_t>(h.n_slice) * plane * scalar_bytes;
   for (uint32_t s = 0; s < h.n_slice; ++s) {
     for (uint32_t y = 0; y < h.dim_y; ++y) {
       for (uint32_t x = 0; x < h.dim_x; ++x) {
         const size_t idx_plane = s * plane + y * h.dim_x + x;
-        double trav = Fp16ToFloat(view.data_fp16[idx_plane + 0 * layer_stride]);
-        double gx = Fp16ToFloat(view.data_fp16[idx_plane + 1 * layer_stride]);
-        double gy = Fp16ToFloat(view.data_fp16[idx_plane + 2 * layer_stride]);
-        double eg = Fp16ToFloat(view.data_fp16[idx_plane + 3 * layer_stride]);
-        double ec = Fp16ToFloat(view.data_fp16[idx_plane + 4 * layer_stride]);
+        const size_t base_offset = idx_plane * scalar_bytes;
+        double trav =
+            ReadScalar(view.data, base_offset + 0 * layer_stride, mode);
+        double gx = ReadScalar(view.data, base_offset + 1 * layer_stride, mode);
+        double gy = ReadScalar(view.data, base_offset + 2 * layer_stride, mode);
+        double eg = ReadScalar(view.data, base_offset + 3 * layer_stride, mode);
+        double ec = ReadScalar(view.data, base_offset + 4 * layer_stride, mode);
 
         const size_t row = static_cast<size_t>(s) * h.dim_y + y;
         out.trav(row, x) = trav;
