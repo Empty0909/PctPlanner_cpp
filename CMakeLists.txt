@@ -102,29 +102,18 @@ target_link_libraries(pcd_publisher
   ${PCL_LIBRARIES}
 )
 
-add_executable(test_planner_smoke src/test_planner_smoke.cpp)
-target_link_libraries(test_planner_smoke
-  Eigen3::Eigen
-  ${LIB_DIR}/libele_planner_lib.so
-  ${LIB_DIR}/liba_star_search.so
-  ${LIB_DIR}/libgpmp_optimizer.so
-  ${LIB_DIR}/libmap_manager.so
-  ${LIB_DIR}/libcommon_smoothing.so
-  gtsam
-)
 
 target_include_directories(planner_node PRIVATE include)
 target_include_directories(tomography_node PRIVATE include)
 target_include_directories(planner_direct_node PRIVATE include)
 target_include_directories(pcd_publisher PRIVATE include)
-target_include_directories(test_planner_smoke PRIVATE include)
+
 
 install(TARGETS
   tomography_node
   planner_node
   planner_direct_node
   pcd_publisher
-  test_planner_smoke
   DESTINATION lib/${PROJECT_NAME}
 )
 

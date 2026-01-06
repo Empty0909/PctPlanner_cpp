@@ -4,7 +4,7 @@ CUDA-based point cloud tomography + global path planner, fully in C++ for ROS2 F
 
 ## What it does (principle)
 
-- **Tomography**: consume `/global_points` point clouds, build a 3D grid (trav cost, gradients, ground/ceiling heights). Publishes binary tomogram and a surface-only visualization.
+- **Tomography**: consume `/global_points` point clouds, build a 3D grid (trav cost, gradients, ground/ceiling heights). Uses slice simplification identical to the original CuPy pipeline, publishes fp16 binary tomogram and a surface-only visualization.
 - **Online planner** (`planner_node`): listens to `/tomogram_data` + `/start_pos` + `/end_pos`, runs A*/trajectory optimizer, outputs `/pct_path` and an ASCII PCD.
 - **Offline planner** (`planner_direct_node`): loads a tomogram file (`tomo_path`), waits for start/end, publishes `/pct_path2` and ASCII PCD; re-publishes periodically for RViz.
 - **Utilities**: sample point-cloud publisher (`pcd_publisher`) and a tiny smoke test.
@@ -53,21 +53,23 @@ CUDA-based point cloud tomography + global path planner, fully in C++ for ROS2 F
    rviz2 -d $PWD/rsc/rviz/pct_ros.rviz
    ```
 
-6) One-click launch (build tomogram, optionally plan, and publish sample cloud):
+6) One-click launch (build tomogram, optionally plan, and publish sample cloud). A default parameter file aligned with the original scene.py is at `config/scene_default.yaml`:
 
    ```bash
    ros2 launch pct_planner_cpp_port pct_all.launch.py \
      output_path:=$PWD/rsc/tomogram/scene_map.bin \
      tomo_path:=$PWD/rsc/tomogram/scene_map.bin \
      pcd_path:=$PWD/trajectory.pcd \
-     publish_start_end:=true start_x:=0.0 start_y:=0.0 start_z:=0.0 end_x:=1.88 end_y:=-4.98 end_z:=3.72
+   params_file:=$PWD/config/scene_default.yaml \
+   publish_start_end:=true start_x:=0.0 start_y:=0.0 start_z:=0.0 end_x:=1.88 end_y:=-4.98 end_z:=3.72
    ```
 
-  ros2 launch pct_planner_cpp_port pct_all.launch.py \
-  output_path:=$PWD/rsc/tomogram/scene_map.bin \
-  tomo_path:=$PWD/rsc/tomogram/scene_map.bin \
-  pcd_path:=$PWD/trajectory.pcd \
-  publish_start_end:=true start_x:=0.0 start_y:=0.0 start_z:=0.0 end_x:=1.88 end_y:=-4.98 end_z:=3.72
+   ros2 launch pct_planner_cpp_port pct_all.launch.py \
+   output_path:=$PWD/rsc/tomogram/scene_map.bin \
+   tomo_path:=$PWD/rsc/tomogram/scene_map.bin \
+   pcd_path:=$PWD/trajectory.pcd \
+   params_file:=$PWD/config/scene_default.yaml \
+   publish_start_end:=true start_x:=0.0 start_y:=0.0 start_z:=0.0 end_x:=1.88 end_y:=-4.98 end_z:=3.72
 
 ## Launch switches (mix and match)
 
@@ -75,6 +77,7 @@ CUDA-based point cloud tomography + global path planner, fully in C++ for ROS2 F
 - `publish_start_end` with `start_x/y/z`, `end_x/y/z`
 - `surface_only` (tomography_node): default true for surface visualization; false publishes full volume (very dense)
 - `use_quintic`, `max_heading_rate` (planner trajectory options)
+- `params_file`: YAML for tomography_node (defaults match original scene.py; see `config/scene_default.yaml`)
 
 ### Common launch recipes
 

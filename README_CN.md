@@ -4,7 +4,7 @@
 
 ## 原理与功能
 
-- **断层建图**：订阅 `/global_points`，栅格化得到 trav 代价、梯度、地面/顶面高度，发布二进制 tomogram 与“仅地面”可视化。
+- **断层建图**：订阅 `/global_points`，栅格化得到 trav 代价、梯度、地面/顶面高度，做与原 CuPy 版一致的切片简化，发布 fp16 二进制 tomogram 与“仅地面”可视化。
 - **在线规划**（`planner_node`）：监听 `/tomogram_data` + `/start_pos` + `/end_pos`，A*+轨迹优化，输出 `/pct_path` 和 ASCII PCD。
 - **离线规划**（`planner_direct_node`）：从 `tomo_path` 直接读 tomogram，等起终点后规划，发布 `/pct_path2` 并周期重发，便于 RViz。
 - **工具**：示例点云发布器（`pcd_publisher`），最小冒烟测试。
@@ -53,16 +53,17 @@
    rviz2 -d $PWD/rsc/rviz/pct_ros.rviz
    ```
 
-6) 一键启动（建图 + 可选规划 + 示例点云）：
+6) 一键启动（建图 + 可选规划 + 示例点云）。默认参数文件（对齐原 scene.py）见 `config/scene_default.yaml`：
 
    ```bash
    ros2 launch pct_planner_cpp_port pct_all.launch.py \
      output_path:=$PWD/rsc/tomogram/scene_map.bin \
      tomo_path:=$PWD/rsc/tomogram/scene_map.bin \
      pcd_path:=$PWD/trajectory.pcd \
+     params_file:=$PWD/config/scene_default.yaml \
      publish_start_end:=true \
-     start_x:=-1.19 start_y:=2.84 start_z:=-0.075 \
-     end_x:=-1.14 end_y:=-3.1 end_z:=0.241
+     start_x:=5.63 start_y:=15 start_z:=0 \
+     end_x:=-9.68 end_y:=6.95 end_z:=0
    ```
 
 ## Launch 开关（可组合）
@@ -71,6 +72,7 @@
 - `publish_start_end` 与 `start_x/y/z`、`end_x/y/z`
 - `surface_only`（tomography_node）：默认 true 仅发布地面，false 发布全体素（点数巨大）
 - `use_quintic`、`max_heading_rate`：轨迹优化配置
+- `params_file`：tomography_node 的 YAML 参数文件，默认与原 scene.py 数值一致（见 `config/scene_default.yaml`）
 
 ### 常用启动组合示例
 

@@ -1,6 +1,7 @@
 // 文件作用：订阅 /global_points 点云，GPU（CUDA）生成
 // tomogram（膨胀代价/梯度/地面/顶部高程），序列化 float16 发布
 // /tomogram_data，并写入磁盘；可视化膨胀后代价、梯度、间隙。
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -26,24 +27,24 @@ public:
       : rclcpp::Node("pct_tomography_cpp"),
         output_path_(declare_parameter<std::string>(
             "output_path", "../../rsc/tomogram/scene_map.bin")),
-        resolution_(declare_parameter<double>("resolution", 0.15)),
+        resolution_(declare_parameter<double>("resolution", 0.10)),
         slice_dh_(declare_parameter<double>("slice_dh", 0.5)),
         // 间隙检测参数：与 Python 原版 scene.py 保持一致
         // interval_min: 最小可通行间隙高度
-        interval_min_(declare_parameter<double>("interval_min", 0.5)),
+        interval_min_(declare_parameter<double>("interval_min", 0.50)),
         // interval_free: 无惩罚间隙高度阈值
-        interval_free_(declare_parameter<double>("interval_free", 0.6)),
+        interval_free_(declare_parameter<double>("interval_free", 0.65)),
         // 坡度参数：slope_max 用于计算 step_stand
-        slope_max_(declare_parameter<double>("slope_max", 1)),
+        slope_max_(declare_parameter<double>("slope_max", 0.36)),
         // 越障参数：step_max 控制可跨越的最大高度差
-        step_max_(declare_parameter<double>("step_max", 0.7)),
-        standable_ratio_(declare_parameter<double>("standable_ratio", 0.4)),
+        step_max_(declare_parameter<double>("step_max", 0.20)),
+        standable_ratio_(declare_parameter<double>("standable_ratio", 0.20)),
         // cost_barrier 与 Python 原版一致
         cost_barrier_(declare_parameter<double>("cost_barrier", 50.0)),
         // 膨胀参数：与 Python 原版一致
-        safe_margin_(declare_parameter<double>("safe_margin", 0.1)),
-        inflation_(declare_parameter<double>("inflation", 0.05)),
-        kernel_size_(declare_parameter<int>("kernel_size", 5)),
+        safe_margin_(declare_parameter<double>("safe_margin", 0.4)),
+        inflation_(declare_parameter<double>("inflation", 0.2)),
+        kernel_size_(declare_parameter<int>("kernel_size", 7)),
         map_frame_(declare_parameter<std::string>("map_frame", "map")),
         surface_only_(declare_parameter<bool>("surface_only", true)),
         published_(false) {
@@ -155,53 +156,119 @@ private:
       return;
     }
 
-    // 记录缺失地面/顶部的掩码，渲染时可跳过，避免在最低层铺满一片平面
+    // 记录缺失地面/顶部的掩码，仅用于可视化过滤；不改写原始高度，保持与原版一致
     std::vector<uint8_t> missing_ground(gpu_out.elev_g.size(), 0);
     std::vector<uint8_t> missing_ceiling(gpu_out.elev_c.size(), 0);
-
-    // 底/顶面缺省值兜底用于规划，但掩码保留缺失点用于可视化过滤
-    const float default_ground = slice_h0;
-    const float default_ceiling =
-        slice_h0 + slice_dh * static_cast<float>(n_slice);
     for (size_t i = 0; i < gpu_out.elev_g.size(); ++i) {
       if (gpu_out.elev_g[i] <= -9e5f) {
         missing_ground[i] = 1;
-        gpu_out.elev_g[i] = default_ground;
       }
       if (gpu_out.elev_c[i] >= 9e5f) {
         missing_ceiling[i] = 1;
-        gpu_out.elev_c[i] = default_ceiling;
       }
     }
 
-    // 缺失地面视为不可行：将代价置为障碍，避免 A* 穿过未观测空洞
-    for (size_t i = 0; i < missing_ground.size(); ++i) {
-      if (missing_ground[i]) {
-        gpu_out.inflated_cost[i] = static_cast<float>(cost_barrier_);
+    // 层简化（与原版 idx_simp 一致）：仅保留“有差异且可通行”的切片
+    std::vector<uint32_t> idx_simp;
+    idx_simp.push_back(0);
+    if (n_slice > 1) {
+      uint32_t l_idx = 0;
+      uint32_t m_idx = 1;
+      while (m_idx < n_slice - 2) {
+        bool keep = false;
+        const size_t plane = static_cast<size_t>(dim_x) * dim_y;
+        const size_t offset_l = static_cast<size_t>(l_idx) * plane;
+        const size_t offset_m = static_cast<size_t>(m_idx) * plane;
+        const size_t offset_u = static_cast<size_t>(m_idx + 1) * plane;
+        for (size_t i = 0; i < plane; ++i) {
+          const float g_l = gpu_out.elev_g[offset_l + i];
+          const float g_m = gpu_out.elev_g[offset_m + i];
+          const float cost_l = gpu_out.inflated_cost[offset_l + i];
+          const float cost_m = gpu_out.inflated_cost[offset_m + i];
+          const float diff_h = gpu_out.elev_g[offset_u + i] - g_m;
+          const bool mask_l_g = (g_m - g_l) > 0.0f;
+          const bool mask_l_t = cost_l > cost_m;
+          const bool mask_u_g = diff_h > 0.0f;
+          const bool mask_t = cost_m < static_cast<float>(cost_barrier_);
+          if ((mask_l_g || mask_l_t) && mask_u_g && mask_t) {
+            keep = true;
+            break;
+          }
+        }
+        if (keep) {
+          idx_simp.push_back(m_idx);
+          l_idx = m_idx;
+        }
+        ++m_idx;
+      }
+      idx_simp.push_back(m_idx); // 对应原版最后一次追加（n_slice-2）
+    }
+
+    const size_t plane = static_cast<size_t>(dim_x) * dim_y;
+    const uint32_t simp_layers = static_cast<uint32_t>(idx_simp.size());
+
+    // 生成简化后的 trav / elev / 高度
+    std::vector<float> trav_simp(static_cast<size_t>(simp_layers) * plane);
+    std::vector<float> elev_g_simp(static_cast<size_t>(simp_layers) * plane);
+    std::vector<float> elev_c_simp(static_cast<size_t>(simp_layers) * plane);
+    std::vector<float> slice_heights_simp;
+    slice_heights_simp.reserve(simp_layers);
+    std::vector<uint8_t> missing_ground_simp(
+        static_cast<size_t>(simp_layers) * plane, 0);
+    std::vector<uint8_t> missing_ceiling_simp(
+        static_cast<size_t>(simp_layers) * plane, 0);
+
+    for (size_t i = 0; i < idx_simp.size(); ++i) {
+      const uint32_t src = idx_simp[i];
+      const size_t src_off = static_cast<size_t>(src) * plane;
+      const size_t dst_off = static_cast<size_t>(i) * plane;
+      std::copy_n(gpu_out.inflated_cost.begin() + src_off, plane,
+                  trav_simp.begin() + dst_off);
+      std::copy_n(gpu_out.elev_g.begin() + src_off, plane,
+                  elev_g_simp.begin() + dst_off);
+      std::copy_n(gpu_out.elev_c.begin() + src_off, plane,
+                  elev_c_simp.begin() + dst_off);
+      std::copy_n(missing_ground.begin() + src_off, plane,
+                  missing_ground_simp.begin() + dst_off);
+      // ceiling 缺失掩码也对齐简化层
+      std::copy_n(missing_ceiling.begin() + src_off, plane,
+                  missing_ceiling_simp.begin() + dst_off);
+      slice_heights_simp.push_back(slice_heights_f32[src]);
+    }
+
+    // 将缺失处置为 NaN，保持与原版导出一致（只影响序列化与可视化）
+    for (size_t i = 0; i < elev_g_simp.size(); ++i) {
+      if (missing_ground_simp[i]) {
+        elev_g_simp[i] = std::numeric_limits<float>::quiet_NaN();
+      }
+      if (missing_ceiling_simp[i]) {
+        elev_c_simp[i] = std::numeric_limits<float>::quiet_NaN();
       }
     }
 
-    // 注意：与 Python 原版一致，不进行硬障碍钳位（1e6）
-    // A* 规划器会根据代价权重自然避开高代价区域（如陡坡），
-    // 同时保留楼梯等跨层通道的可通行性（代价 = cost_barrier 但非无穷大）
+    // 生成 trav 梯度（在简化层上取中心差分）
+    std::vector<float> trav_gx(static_cast<size_t>(simp_layers) * plane, 0.0f);
+    std::vector<float> trav_gy(static_cast<size_t>(simp_layers) * plane, 0.0f);
+    ComputeTravGradient(simp_layers, dim_x, dim_y, trav_simp, trav_gx, trav_gy);
 
-    // 生成 trav 梯度（在膨胀代价上取中心差分）
-    std::vector<float> trav_gx(gpu_out.inflated_cost.size(), 0.0f);
-    std::vector<float> trav_gy(gpu_out.inflated_cost.size(), 0.0f);
-    ComputeTravGradient(n_slice, dim_x, dim_y, gpu_out.inflated_cost, trav_gx,
-                        trav_gy);
+    // 序列化 tomogram（简化后的层）
+    TomogramHeader simp_header = tomogram_format::MakeHeader(
+        simp_layers, dim_x, dim_y, static_cast<float>(resolution_), cx, cy,
+        slice_heights_simp.front(), slice_dh);
 
-    // 序列化 tomogram（trav/gx/gy/elev_g/elev_c 全体素）
-    const size_t voxels_per_layer =
-        static_cast<size_t>(n_slice) * dim_x * dim_y;
-    const size_t total_voxels =
-        voxels_per_layer * tomogram_format::kLayersPerVoxel;
+    std::vector<uint16_t> slice_heights_fp16_simp(simp_layers);
+    for (size_t i = 0; i < slice_heights_simp.size(); ++i) {
+      slice_heights_fp16_simp[i] = Float32ToFp16(slice_heights_simp[i]);
+    }
+
+    const size_t total_voxels = static_cast<size_t>(simp_layers) * plane *
+                                tomogram_format::kLayersPerVoxel;
     std::vector<uint16_t> data_fp16(total_voxels, 0);
-    FillTomogramPayload(n_slice, dim_x, dim_y, gpu_out.inflated_cost, trav_gx,
-                        trav_gy, gpu_out.elev_g, gpu_out.elev_c, data_fp16);
+    FillTomogramPayload(simp_layers, dim_x, dim_y, trav_simp, trav_gx, trav_gy,
+                        elev_g_simp, elev_c_simp, data_fp16);
 
-    std::vector<uint8_t> payload =
-        tomogram_format::Serialize(header, slice_heights_fp16, data_fp16);
+    std::vector<uint8_t> payload = tomogram_format::Serialize(
+        simp_header, slice_heights_fp16_simp, data_fp16);
 
     std_msgs::msg::ByteMultiArray msg_out;
     msg_out.data.assign(payload.begin(), payload.end());
@@ -211,14 +278,14 @@ private:
 
     // 可视化：默认发布全量体素；如需仅地面可在参数 surface_only=true
     if (surface_only_) {
-      PublishSurfaceCloud(n_slice, dim_x, dim_y, cx, cy,
-                          static_cast<float>(resolution_), slice_heights_f32,
-                          gpu_out.inflated_cost, gpu_out.elev_g, missing_ground,
+      PublishSurfaceCloud(simp_layers, dim_x, dim_y, cx, cy,
+                          static_cast<float>(resolution_), slice_heights_simp,
+                          trav_simp, elev_g_simp, missing_ground_simp,
                           tomogram_pub_);
     } else {
-      PublishAllCloud(n_slice, dim_x, dim_y, cx, cy,
-                      static_cast<float>(resolution_), slice_heights_f32,
-                      gpu_out.inflated_cost, tomogram_pub_);
+      PublishAllCloud(simp_layers, dim_x, dim_y, cx, cy,
+                      static_cast<float>(resolution_), slice_heights_simp,
+                      trav_simp, tomogram_pub_);
     }
 
     WriteBinary(output_path_, payload);

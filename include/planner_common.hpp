@@ -85,6 +85,12 @@ inline void ParseTomogram(const std::vector<uint8_t> &buffer,
     }
   }
 
+  // 与 Python 版本一致：把缺失地面/顶面高度填成哨兵值，避免 NaN 进入规划器。
+  out.elev_g =
+      out.elev_g.unaryExpr([](double v) { return std::isnan(v) ? -100.0 : v; });
+  out.elev_c =
+      out.elev_c.unaryExpr([](double v) { return std::isnan(v) ? 1e6 : v; });
+
   // gateway 判定与 Python 一致：跨层代价突变且地面高度连续时视为“可穿越”。
   out.gateway.setZero();
   for (uint32_t s = 0; s + 1 < h.n_slice; ++s) {
@@ -138,12 +144,17 @@ inline bool PosToIdx(const geometry_msgs::msg::Point &p, const PlannerInput &in,
 
 // 栅格坐标 → 世界坐标（原点在地图中心）。
 inline void GridToMap(const PlannerInput &in, Eigen::Vector3d &p) {
-  double ox = static_cast<double>(in.dim_x) / 2.0;
-  double oy = static_cast<double>(in.dim_y) / 2.0;
-  double gx = (p.x() - ox) * in.resolution + in.center_x;
-  double gy = (p.y() - oy) * in.resolution + in.center_y;
+  // 与 Python transTrajGrid2Map 保持一致：
+  // world_x = (grid_y - dim_x/2) * res + center_x
+  // world_y = (grid_x - dim_y/2) * res + center_y
+  // world_z = grid_z * res + 0.5（原版常数偏移）
+  const double ox = static_cast<double>(in.dim_y) / 2.0;
+  const double oy = static_cast<double>(in.dim_x) / 2.0;
+  const double gx = (p.y() - oy) * in.resolution + in.center_x;
+  const double gy = (p.x() - ox) * in.resolution + in.center_y;
   p.x() = gx;
   p.y() = gy;
+  p.z() = p.z() * in.resolution + 0.5; // z 也做栅格到米的转换并加偏置
 }
 
 // 写 ASCII PCD，成功返回 true。

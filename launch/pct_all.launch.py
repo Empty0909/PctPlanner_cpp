@@ -32,13 +32,12 @@ def generate_launch_description():
     pkg_share = FindPackageShare('pct_planner_cpp_port')
     default_tomo = PathJoinSubstitution([pkg_share, 'rsc', 'tomogram', 'scene_map.bin'])
     default_pcd = PathJoinSubstitution([pkg_share, 'trajectory.pcd'])
+    default_params = PathJoinSubstitution([pkg_share, 'config', 'scene_default.yaml'])
 
     output_path = LaunchConfiguration('output_path')
     pcd_path = LaunchConfiguration('pcd_path')
     tomo_path = LaunchConfiguration('tomo_path')
-    use_quintic = LaunchConfiguration('use_quintic')
-    max_heading_rate = LaunchConfiguration('max_heading_rate')
-
+    params_file = LaunchConfiguration('params_file')
     enable_planner = LaunchConfiguration('enable_planner')
     enable_planner_direct = LaunchConfiguration('enable_planner_direct')
     enable_pcd_publisher = LaunchConfiguration('enable_pcd_publisher')
@@ -49,14 +48,6 @@ def generate_launch_description():
     end_x = LaunchConfiguration('end_x')
     end_y = LaunchConfiguration('end_y')
     end_z = LaunchConfiguration('end_z')
-    
-    # GO2 机器狗安全参数
-    interval_min = LaunchConfiguration('interval_min')
-    interval_free = LaunchConfiguration('interval_free')
-    safe_margin = LaunchConfiguration('safe_margin')
-    inflation = LaunchConfiguration('inflation')
-    step_max = LaunchConfiguration('step_max')
-    slope_max = LaunchConfiguration('slope_max')
 
     return LaunchDescription([
         # 确保运行时能找到 planner_lib 与 gtsam 动态库
@@ -75,10 +66,8 @@ def generate_launch_description():
                               description='planner_* 输出 ASCII PCD 的路径'),
         DeclareLaunchArgument('tomo_path', default_value=default_tomo,
                               description='planner_direct_node 读取 tomogram 的路径'),
-        DeclareLaunchArgument('use_quintic', default_value='true',
-                              description='是否使用五次多项式轨迹优化'),
-        DeclareLaunchArgument('max_heading_rate', default_value='10.0',
-                              description='最大航向角速率（deg/s）'),
+        DeclareLaunchArgument('params_file', default_value=default_params,
+                  description='统一参数文件 (YAML)，覆盖所有节点'),
 
         # Optional components
         DeclareLaunchArgument('enable_planner', default_value='true',
@@ -96,35 +85,13 @@ def generate_launch_description():
         DeclareLaunchArgument('end_y', default_value='5.0'),
         DeclareLaunchArgument('end_z', default_value='0.0'),
         
-        # GO2 机器狗安全参数（可根据实际机器人调整）
-        DeclareLaunchArgument('interval_min', default_value='1.0',
-                              description='最小可通行垂直间隙（GO2约0.5m高，设1.0m留余量）'),
-        DeclareLaunchArgument('interval_free', default_value='1.2',
-                              description='自由通行垂直间隙'),
-        DeclareLaunchArgument('safe_margin', default_value='0.4',
-                              description='障碍物安全边距（GO2宽约0.3m）'),
-        DeclareLaunchArgument('inflation', default_value='0.4',
-                              description='代价膨胀半径'),
-        DeclareLaunchArgument('step_max', default_value='0.15',
-                              description='最大可越障高度（GO2约0.15-0.20m）'),
-        DeclareLaunchArgument('slope_max', default_value='0.5',
-                              description='最大坡度（弧度）'),
-
         # Tomogram construction
         Node(
             package='pct_planner_cpp_port',
             executable='tomography_node',
             name='pct_tomography_cpp',
             output='screen',
-            parameters=[{
-                'output_path': output_path,
-                'interval_min': interval_min,
-                'interval_free': interval_free,
-                'safe_margin': safe_margin,
-                'inflation': inflation,
-                'step_max': step_max,
-                'slope_max': slope_max,
-            }],
+            parameters=[params_file],
         ),
 
         # Online planner (consumes /tomogram_data)
@@ -134,11 +101,7 @@ def generate_launch_description():
             executable='planner_node',
             name='pct_planner_cpp',
             output='screen',
-            parameters=[{
-                'pcd_path': pcd_path,
-                'use_quintic': use_quintic,
-                'max_heading_rate': max_heading_rate,
-            }],
+            parameters=[params_file],
         ),
 
         # Offline planner (loads tomogram file)
@@ -148,12 +111,7 @@ def generate_launch_description():
             executable='planner_direct_node',
             name='pct_planner_direct_cpp',
             output='screen',
-            parameters=[{
-                'pcd_path': pcd_path,
-                'tomo_path': tomo_path,
-                'use_quintic': use_quintic,
-                'max_heading_rate': max_heading_rate,
-            }],
+            parameters=[params_file],
         ),
 
         # Sample point cloud publisher
