@@ -100,9 +100,14 @@ private:
         input.n_slice, input.dim_x, input.dim_y, input.resolution,
         input.center_x, input.center_y);
 
+    geometry_msgs::msg::Point start_shifted = start_;
+    geometry_msgs::msg::Point end_shifted = end_;
+    start_shifted.z += 0.5;
+    end_shifted.z += 0.5;
+
     Eigen::Vector3i start_idx, goal_idx;
-    if (!PosToIdx(start_, input, start_idx) ||
-        !PosToIdx(end_, input, goal_idx)) {
+    if (!PosToIdx(start_shifted, input, start_idx) ||
+        !PosToIdx(end_shifted, input, goal_idx)) {
       RCLCPP_ERROR(get_logger(),
                    "Start or goal out of map bounds. Start=[%.2f,%.2f,%.2f], "
                    "End=[%.2f,%.2f,%.2f]",

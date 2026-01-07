@@ -56,20 +56,13 @@
 6) 一键启动（建图 + 可选规划 + 示例点云）。默认参数文件（对齐原 scene.py，若需改精度见下文 **精度模式**）见 `config/scene_default.yaml`：
 
    ```bash
+   
    ros2 launch pct_planner_cpp_port pct_all.launch.py \
-     output_path:=$PWD/rsc/tomogram/scene_map.bin \
-     tomo_path:=$PWD/rsc/tomogram/scene_map.bin \
-     pcd_path:=$PWD/trajectory.pcd \
-     params_file:=$PWD/config/scene_default.yaml \
+     params_file:=/home/lzy/PctPlanner/PctPlanner_Cpp/config/scene_default.yaml \
      publish_start_end:=true \
      start_x:=5.63 start_y:=15 start_z:=0 \
      end_x:=-9.68 end_y:=6.95 end_z:=0
 
-   通过yaml文件直接设置参数
-   ros2 launch pct_planner_cpp_port pct_all.launch.py \
-     params_file:=/home/lzy/PctPlanner/PctPlanner_Cpp/config/scene_default.yaml \
-     start_x:=5.63 start_y:=15 start_z:=0 \
-     end_x:=-9.68 end_y:=6.95 end_z:=0
    ```
 
 ## Launch 开关（可组合）
@@ -130,3 +123,9 @@ ros2 topic pub --once /end_pos   geometry_msgs/msg/Point "{x: -8.03, y: 6.6, z: 
 
 - 保留 `planner_lib` 中的 `.so` 及 `3rdparty/gtsam-4.1.1/install/`，避免用户重建 gtsam。
 - 提交前清理 `build/`、`install/`、`log/`。
+
+对比两个版本代价地图
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools
+python3 tomogram_compare.py \
+  --bin ../rsc/tomogram/scene_map.bin \
+  --pickle ../../PctPlanner_py/rsc/tomogram/scene_map.pickle

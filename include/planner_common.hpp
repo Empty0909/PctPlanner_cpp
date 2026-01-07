@@ -166,14 +166,14 @@ inline void GridToMap(const PlannerInput &in, Eigen::Vector3d &p) {
   // 与 Python transTrajGrid2Map 保持一致：
   // world_x = (grid_y - dim_x/2) * res + center_x
   // world_y = (grid_x - dim_y/2) * res + center_y
-  // world_z = grid_z * res + 0.5（原版常数偏移）
+  // world_z = grid_z + 0.5（高度已是米制，仅保留常数偏移）
   const double ox = static_cast<double>(in.dim_y) / 2.0;
   const double oy = static_cast<double>(in.dim_x) / 2.0;
   const double gx = (p.y() - oy) * in.resolution + in.center_x;
   const double gy = (p.x() - ox) * in.resolution + in.center_y;
   p.x() = gx;
   p.y() = gy;
-  p.z() = p.z() * in.resolution + 0.5; // z 也做栅格到米的转换并加偏置
+  p.z() = p.z() + 0.5; // z 保持米制，只加常数偏置
 }
 
 // 写 ASCII PCD，成功返回 true。

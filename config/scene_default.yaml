@@ -1,21 +1,21 @@
 pct_tomography_cpp:
   ros__parameters:
     # 场景栅格参数（与原 scene.py 对齐）
-    resolution: 0.10        # 栅格分辨率（米/格）
+    resolution: 0.15        # 栅格分辨率（米/格）
     slice_dh: 0.5           # 垂直切片间距（米）
 
     # 可行域/间隙参数
-    kernel_size: 7          # 膨胀卷积核尺寸（奇数，越大膨胀越强）
+    kernel_size: 5          # 膨胀卷积核尺寸（奇数，越大膨胀越强）
     interval_min: 0.50      # 允许通过的最小间隙高度（米）
-    interval_free: 0.65     # 无惩罚间隙阈值（米，超过此高度视为畅通）
-    slope_max: 0.36         # 最大坡度（用于估计可站立高度 step_stand）
-    step_max: 0.20          # 可跨越的最大台阶高度差（米）
-    standable_ratio: 0.20   # 邻域可站立比例阈值
+    interval_free: 0.6     # 无惩罚间隙阈值（米，超过此高度视为畅通）
+    slope_max: 1.0         # 最大坡度（用于估计可站立高度 step_stand）
+    step_max: 0.7          # 可跨越的最大台阶高度差（米）
+    standable_ratio: 0.40   # 邻域可站立比例阈值
     cost_barrier: 50.0      # 代价屏障阈值，>= 此值视为不可通行
 
     # 膨胀参数
-    safe_margin: 0.4        # 安全边界（米，决定障碍膨胀半径）
-    inflation: 0.2         # 膨胀附加成本（越大通行区越少）
+    safe_margin: 0.1        # 安全边界（米，决定障碍膨胀半径）
+    inflation: 0.05         # 膨胀附加成本（越大通行区越少）
 
     # 其他
     map_frame: "map"       # 发布点云/可视化使用的坐标系
