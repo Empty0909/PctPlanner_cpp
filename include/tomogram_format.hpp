@@ -1,5 +1,14 @@
 // 文件作用：定义 tomogram
 // 二进制格式的头部与序列化/反序列化工具，供规划与建图节点共用。
+//
+// 数据布局（与 Python 版本完全一致）:
+//   Header: 48 bytes
+//   SliceHeights: n_slice × scalar_bytes
+//   Data: 5 × n_slice × dim_x × dim_y × scalar_bytes
+//         层顺序: [trav][trav_gx][trav_gy][elev_g][elev_c]
+//         每层内存布局: [slice][x][y]，即 index = dim_y * x + y
+//
+// dim_x 对应世界坐标 x 轴（点云的 px），dim_y 对应 y 轴（py）
 #pragma once
 
 #include <array>

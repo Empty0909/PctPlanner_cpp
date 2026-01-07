@@ -31,6 +31,9 @@ public:
             "output_path", "../../rsc/tomogram/scene_map.bin")),
         resolution_(declare_parameter<double>("resolution", 0.10)),
         slice_dh_(declare_parameter<double>("slice_dh", 0.5)),
+        // ground_h: 地面参考高度，与 Python scene.py 中 ground_h 一致
+        // 用于覆盖点云最低高度，确保切片起始高度可控
+        ground_h_(declare_parameter<double>("ground_h", 0.0)),
         // 间隙检测参数：与 Python 原版 scene.py 保持一致
         // interval_min: 最小可通行间隙高度
         interval_min_(declare_parameter<double>("interval_min", 0.50)),
@@ -103,7 +106,9 @@ private:
       pmin = pmin.cwiseMin(p);
       pmax = pmax.cwiseMax(p);
     }
-    pmin.z() = std::min(pmin.z(), pmax.z());
+    // 与 Python 版本一致：用 ground_h 覆盖点云最低高度，使切片起始可控
+    // Python: self.points_min[-1] = self.ground_h
+    pmin.z() = static_cast<float>(ground_h_);
     const float slice_h0 = pmin.z() + static_cast<float>(slice_dh_);
     const float slice_dh = static_cast<float>(slice_dh_);
 
@@ -334,17 +339,22 @@ private:
     }
   }
 
+  // 计算 trav 梯度，与 Python 版本保持一致
+  // 布局: [slice][x][y]，索引 = dim_y * x + y
   void ComputeTravGradient(uint32_t n_slice, uint32_t dim_x, uint32_t dim_y,
                            const std::vector<float> &cost,
                            std::vector<float> &gx, std::vector<float> &gy) {
     const size_t plane = static_cast<size_t>(dim_x) * dim_y;
     for (uint32_t s = 0; s < n_slice; ++s) {
       const size_t offset = static_cast<size_t>(s) * plane;
-      for (uint32_t y = 1; y + 1 < dim_y; ++y) {
-        for (uint32_t x = 1; x + 1 < dim_x; ++x) {
-          const size_t idx = offset + static_cast<size_t>(y) * dim_x + x;
-          gx[idx] = cost[idx + 1] - cost[idx - 1];
-          gy[idx] = cost[idx + dim_x] - cost[idx - dim_x];
+      for (uint32_t x = 1; x + 1 < dim_x; ++x) {
+        for (uint32_t y = 1; y + 1 < dim_y; ++y) {
+          // idx = dim_y * x + y
+          const size_t idx = offset + static_cast<size_t>(x) * dim_y + y;
+          // gx: x方向梯度，偏移量 ±dim_y
+          gx[idx] = cost[idx + dim_y] - cost[idx - dim_y];
+          // gy: y方向梯度，偏移量 ±1
+          gy[idx] = cost[idx + 1] - cost[idx - 1];
         }
       }
     }
@@ -379,11 +389,14 @@ private:
       }
     };
 
+    // 遍历顺序与 Python 一致: [slice][x][y]
+    // 这里直接按线性索引写入，因为输入数组已按正确布局排列
     for (uint32_t s = 0; s < n_slice; ++s) {
       const size_t offset = static_cast<size_t>(s) * plane;
-      for (uint32_t y = 0; y < dim_y; ++y) {
-        for (uint32_t x = 0; x < dim_x; ++x) {
-          const size_t idx = offset + static_cast<size_t>(y) * dim_x + x;
+      for (uint32_t x = 0; x < dim_x; ++x) {
+        for (uint32_t y = 0; y < dim_y; ++y) {
+          // idx = dim_y * x + y
+          const size_t idx = offset + static_cast<size_t>(x) * dim_y + y;
           write_value(idx, 0, trav[idx]);
           write_value(idx, 1, gx[idx]);
           write_value(idx, 2, gy[idx]);
@@ -443,16 +456,18 @@ private:
     const float ox = static_cast<float>(dim_x) / 2.0f;
     const float oy = static_cast<float>(dim_y) / 2.0f;
 
+    // 遍历顺序与数据布局一致: [slice][x][y]
     for (uint32_t s = 0; s < n_slice; ++s) {
       float hz = slice_heights[s];
       const size_t offset = static_cast<size_t>(s) * plane;
-      for (uint32_t y = 0; y < dim_y; ++y) {
-        for (uint32_t x = 0; x < dim_x;
-             ++x, ++iter_x, ++iter_y, ++iter_z, ++iter_i) {
+      for (uint32_t x = 0; x < dim_x; ++x) {
+        for (uint32_t y = 0; y < dim_y;
+             ++y, ++iter_x, ++iter_y, ++iter_z, ++iter_i) {
           *iter_x = (static_cast<float>(x) - ox) * resolution + cx;
           *iter_y = (static_cast<float>(y) - oy) * resolution + cy;
           *iter_z = hz;
-          *iter_i = trav[offset + static_cast<size_t>(y) * dim_x + x];
+          // idx = dim_y * x + y
+          *iter_i = trav[offset + static_cast<size_t>(x) * dim_y + y];
         }
       }
     }
@@ -491,9 +506,11 @@ private:
       const uint8_t *miss_s =
           missing_ground.data() + static_cast<size_t>(s) * plane;
 
-      for (uint32_t y = 0; y < dim_y; ++y) {
-        for (uint32_t x = 0; x < dim_x; ++x) {
-          const size_t idx = static_cast<size_t>(y) * dim_x + x;
+      // 遍历顺序与数据布局一致: [slice][x][y]
+      for (uint32_t x = 0; x < dim_x; ++x) {
+        for (uint32_t y = 0; y < dim_y; ++y) {
+          // idx = dim_y * x + y
+          const size_t idx = static_cast<size_t>(x) * dim_y + y;
           if (elev_next) {
             const float dh = std::fabs(elev_next[idx] - elev_s[idx]);
             if (dh < static_cast<float>(slice_dh_))
@@ -591,6 +608,7 @@ private:
   std::string output_path_;
   double resolution_;
   double slice_dh_;
+  double ground_h_;
   double interval_min_;
   double interval_free_;
   double slope_max_;

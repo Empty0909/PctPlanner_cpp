@@ -3,6 +3,7 @@ pct_tomography_cpp:
     # 场景栅格参数（与原 scene.py 对齐）
     resolution: 0.15        # 栅格分辨率（米/格）
     slice_dh: 0.5           # 垂直切片间距（米）
+    ground_h: 0.0           # 地面参考高度（米），用于覆盖点云最低高度
 
     # 可行域/间隙参数
     kernel_size: 5          # 膨胀卷积核尺寸（奇数，越大膨胀越强）
@@ -21,7 +22,7 @@ pct_tomography_cpp:
     map_frame: "map"       # 发布点云/可视化使用的坐标系
     surface_only: true      # true 只发布地面可视化，false 发布全体素（点数大）
     output_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin"  # tomogram 二进制输出路径
-    precision_mode: "float32"   # 可选 float16 / float32
+    precision_mode: "float16"   # 可选 float16 / float32
 
 pct_planner_cpp:
   ros__parameters:

@@ -41,16 +41,19 @@ __device__ inline float atomicMinFloat(float *address, float val) {
   return __int_as_float(old);
 }
 
+// 相对索引计算，与 Python kernels.py getIdxRelative 保持一致
+// 布局: [slice][x][y]，即 index = dim_y * x + y
 __device__ inline int getIdxRelative(int idx, int dx, int dy, int dim_x,
                                      int dim_y) {
   int plane_idx = idx % (dim_x * dim_y);
-  int ix = plane_idx % dim_x;
-  int iy = plane_idx / dim_x;
+  int iy = plane_idx % dim_y; // y = plane_idx % dim_y
+  int ix = plane_idx / dim_y; // x = plane_idx / dim_y
   int rx = ix + dx;
   int ry = iy + dy;
   if (rx < 0 || rx >= dim_x || ry < 0 || ry >= dim_y)
     return -1;
-  return idx + dx + dy * dim_x;
+  // 偏移量: dx * dim_y + dy
+  return idx + dx * dim_y + dy;
 }
 
 __global__ void ClearKernel(float *layers_g, float *layers_c,
@@ -81,6 +84,11 @@ __global__ void TomographyKernel(const float3 *points, int num_points,
   float py = points[idx].y;
   float pz = points[idx].z;
 
+  // 索引计算与 Python kernels.py 保持一致:
+  // Python: idx_x = round((x - cx) / resolution) + n_row / 2
+  //         idx_y = round((y - cy) / resolution) + n_col / 2
+  //         index = n_col * idx_x + idx_y
+  // 这里 n_row = dim_x, n_col = dim_y
   int ix = static_cast<int>(
       roundf((px - cx) / resolution + static_cast<float>(dim_x) / 2.0f));
   int iy = static_cast<int>(
@@ -88,7 +96,8 @@ __global__ void TomographyKernel(const float3 *points, int num_points,
   if (ix < 0 || ix >= dim_x || iy < 0 || iy >= dim_y)
     return;
 
-  int base = iy * dim_x + ix;
+  // 与 Python 一致: base = dim_y * ix + iy (Python: n_col * idx_x + idx_y)
+  int base = dim_y * ix + iy;
   for (int s = 0; s < n_slice; ++s) {
     float slice = slice_h0 + slice_dh * static_cast<float>(s);
     int offset = s * dim_x * dim_y + base;
@@ -110,9 +119,10 @@ __global__ void GradIntervalKernel(const float *layers_g, const float *layers_c,
   if (idx >= total)
     return;
 
+  // 布局与 Python 一致: [slice][x][y]，即 index = dim_y * x + y
   int plane_idx = idx % plane;
-  int x = plane_idx % dim_x;
-  int y = plane_idx / dim_x;
+  int y = plane_idx % dim_y;
+  int x = plane_idx / dim_y;
 
   float lg = layers_g[idx];
   float lc = layers_c[idx];
@@ -133,31 +143,32 @@ __global__ void GradIntervalKernel(const float *layers_g, const float *layers_c,
     return;
   }
 
-  int idx_l = idx - 1;
-  int idx_r = idx + 1;
-  int idx_u = idx - dim_x;
-  int idx_d = idx + dim_x;
+  // 相邻索引: y方向±1, x方向±dim_y（因为布局是 dim_y * x + y）
+  int idx_ym = idx - 1;     // y - 1
+  int idx_yp = idx + 1;     // y + 1
+  int idx_xm = idx - dim_y; // x - 1
+  int idx_xp = idx + dim_y; // x + 1
 
   // 获取相邻体素的地面高度，如果缺失则使用当前体素高度（梯度为0）
-  float lg_l = layers_g[idx_l];
-  float lg_r = layers_g[idx_r];
-  float lg_u = layers_g[idx_u];
-  float lg_d = layers_g[idx_d];
+  float lg_xm = layers_g[idx_xm];
+  float lg_xp = layers_g[idx_xp];
+  float lg_ym = layers_g[idx_ym];
+  float lg_yp = layers_g[idx_yp];
 
   // 如果相邻体素缺失地面，用当前高度替代（不产生梯度）
-  if (lg_l < missing_threshold)
-    lg_l = lg;
-  if (lg_r < missing_threshold)
-    lg_r = lg;
-  if (lg_u < missing_threshold)
-    lg_u = lg;
-  if (lg_d < missing_threshold)
-    lg_d = lg;
+  if (lg_xm < missing_threshold)
+    lg_xm = lg;
+  if (lg_xp < missing_threshold)
+    lg_xp = lg;
+  if (lg_ym < missing_threshold)
+    lg_ym = lg;
+  if (lg_yp < missing_threshold)
+    lg_yp = lg;
 
-  float diff_x1 = lg - lg_l;
-  float diff_x2 = lg - lg_r;
-  float diff_y1 = lg - lg_u;
-  float diff_y2 = lg - lg_d;
+  float diff_x1 = lg - lg_xm;
+  float diff_x2 = lg - lg_xp;
+  float diff_y1 = lg - lg_ym;
+  float diff_y2 = lg - lg_yp;
 
   float diff_x_sq = fmaxf(diff_x1 * diff_x1, diff_x2 * diff_x2);
   float diff_y_sq = fmaxf(diff_y1 * diff_y1, diff_y2 * diff_y2);

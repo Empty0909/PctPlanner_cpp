@@ -82,10 +82,13 @@ inline void ParseTomogram(const std::vector<uint8_t> &buffer,
 
   const size_t layer_stride =
       static_cast<size_t>(h.n_slice) * plane * scalar_bytes;
+  // 数据布局与 Python 一致: [layer][slice][dim_x][dim_y]
+  // 文件中线性索引: slice * plane + x * dim_y + y
   for (uint32_t s = 0; s < h.n_slice; ++s) {
-    for (uint32_t y = 0; y < h.dim_y; ++y) {
-      for (uint32_t x = 0; x < h.dim_x; ++x) {
-        const size_t idx_plane = s * plane + y * h.dim_x + x;
+    for (uint32_t x = 0; x < h.dim_x; ++x) {
+      for (uint32_t y = 0; y < h.dim_y; ++y) {
+        // 文件中的索引: dim_y * x + y
+        const size_t idx_plane = s * plane + x * h.dim_y + y;
         const size_t base_offset = idx_plane * scalar_bytes;
         double trav =
             ReadScalar(view.data, base_offset + 0 * layer_stride, mode);
@@ -94,6 +97,8 @@ inline void ParseTomogram(const std::vector<uint8_t> &buffer,
         double eg = ReadScalar(view.data, base_offset + 3 * layer_stride, mode);
         double ec = ReadScalar(view.data, base_offset + 4 * layer_stride, mode);
 
+        // 输出矩阵: row = slice * dim_y + y, col = x
+        // 与 Python planner_wrapper.py 中的 reshape(-1, trav.shape[-1]) 一致
         const size_t row = static_cast<size_t>(s) * h.dim_y + y;
         out.trav(row, x) = trav;
         out.trav_gx(row, x) = gx;

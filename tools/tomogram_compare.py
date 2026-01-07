@@ -82,7 +82,9 @@ def load_cpp_binary(path: Path) -> Tomogram:
         raise ValueError("Payload truncated: file ended before all voxel layers were read")
 
     payload = np.frombuffer(data, dtype=scalar_dtype, count=layer_voxels, offset=offset)
-    cube = payload.reshape(len(LAYER_NAMES), n_slice, dim_y, dim_x).astype(np.float32)
+    # C++ 和 Python 现在都使用相同的布局: [layers][n_slice][dim_x][dim_y]
+    # 注意: header 中的 dim_x/dim_y 定义与 Python 一致
+    cube = payload.reshape(len(LAYER_NAMES), n_slice, dim_x, dim_y).astype(np.float32)
 
     header = {
         "version": version,
