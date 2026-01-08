@@ -65,6 +65,26 @@
 
    ```
 
+   ```bash
+
+   ros2 launch pct_planner_cpp_port pct_all.launch.py \
+     params_file:=/home/lzy/PctPlanner/PctPlanner_Cpp/config/scene_default.yaml \
+     publish_start_end:=true \
+     start_x:=-0.735 start_y:=3.36 start_z:=0 \
+     end_x:=-1.62 end_y:=-3.69 end_z:=0.193
+
+   ```
+
+   ```bash
+
+   ros2 launch pct_planner_cpp_port pct_all.launch.py \
+     params_file:=/home/lzy/PctPlanner/PctPlanner_Cpp/config/scene_default.yaml \
+     publish_start_end:=true \
+     start_x:=-0.735 start_y:=3.36 start_z:=0 \
+     end_x:=0.499 end_y:=-6.82 end_z:=5.7
+
+   ```
+
 ## Launch 开关（可组合）
 
 - `enable_planner` / `enable_planner_direct` / `enable_pcd_publisher`

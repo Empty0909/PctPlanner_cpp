@@ -84,15 +84,12 @@ __global__ void TomographyKernel(const float3 *points, int num_points,
   float py = points[idx].y;
   float pz = points[idx].z;
 
-  // 索引计算与 Python kernels.py 保持一致:
-  // Python: idx_x = round((x - cx) / resolution) + n_row / 2
-  //         idx_y = round((y - cy) / resolution) + n_col / 2
-  //         index = n_col * idx_x + idx_y
+  // 索引计算与 Python kernels.py 完全一致:
+  // Python: i = round((x - center) / resolution)  // 先 round 成整数
+  //         idx_x = i + n_row / 2                  // 再加偏移
   // 这里 n_row = dim_x, n_col = dim_y
-  int ix = static_cast<int>(
-      roundf((px - cx) / resolution + static_cast<float>(dim_x) / 2.0f));
-  int iy = static_cast<int>(
-      roundf((py - cy) / resolution + static_cast<float>(dim_y) / 2.0f));
+  int ix = static_cast<int>(roundf((px - cx) / resolution)) + dim_x / 2;
+  int iy = static_cast<int>(roundf((py - cy) / resolution)) + dim_y / 2;
   if (ix < 0 || ix >= dim_x || iy < 0 || iy >= dim_y)
     return;
 
@@ -128,15 +125,7 @@ __global__ void GradIntervalKernel(const float *layers_g, const float *layers_c,
   float lc = layers_c[idx];
   interval[idx] = lc - lg;
 
-  // 如果当前体素没有地面点（未初始化），梯度设为0
-  // 缺失地面的体素会在后续被标记为障碍
-  const float missing_threshold = -9e5f;
-  if (lg < missing_threshold) {
-    grad_mag_sq[idx] = 0.0f;
-    grad_mag_max[idx] = 0.0f;
-    return;
-  }
-
+  // 边界处理：边界格子梯度设为0
   if (x == 0 || x == dim_x - 1 || y == 0 || y == dim_y - 1) {
     grad_mag_sq[idx] = 0.0f;
     grad_mag_max[idx] = 0.0f;
@@ -149,21 +138,13 @@ __global__ void GradIntervalKernel(const float *layers_g, const float *layers_c,
   int idx_xm = idx - dim_y; // x - 1
   int idx_xp = idx + dim_y; // x + 1
 
-  // 获取相邻体素的地面高度，如果缺失则使用当前体素高度（梯度为0）
+  // 获取相邻体素的地面高度
+  // 与 Python 版本一致：直接使用原始值（包括 -1e6），不做替换
+  // 这会使得与缺失地面相邻的格子产生巨大梯度，从而被标记为障碍
   float lg_xm = layers_g[idx_xm];
   float lg_xp = layers_g[idx_xp];
   float lg_ym = layers_g[idx_ym];
   float lg_yp = layers_g[idx_yp];
-
-  // 如果相邻体素缺失地面，用当前高度替代（不产生梯度）
-  if (lg_xm < missing_threshold)
-    lg_xm = lg;
-  if (lg_xp < missing_threshold)
-    lg_xp = lg;
-  if (lg_ym < missing_threshold)
-    lg_ym = lg;
-  if (lg_yp < missing_threshold)
-    lg_yp = lg;
 
   float diff_x1 = lg - lg_xm;
   float diff_x2 = lg - lg_xp;

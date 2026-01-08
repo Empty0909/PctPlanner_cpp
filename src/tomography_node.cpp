@@ -210,6 +210,21 @@ private:
     const size_t plane = static_cast<size_t>(dim_x) * dim_y;
     const uint32_t simp_layers = static_cast<uint32_t>(idx_simp.size());
 
+    // 调试：输出层简化信息
+    RCLCPP_INFO(get_logger(),
+                "Layer simplification: init=%u, simp=%u, idx_simp=[%s]",
+                n_slice, simp_layers,
+                [&]() {
+                  std::string s;
+                  for (size_t i = 0; i < idx_simp.size(); ++i) {
+                    if (i > 0)
+                      s += ",";
+                    s += std::to_string(idx_simp[i]);
+                  }
+                  return s;
+                }()
+                    .c_str());
+
     // 生成简化后的 trav / elev / 高度
     std::vector<float> trav_simp(static_cast<size_t>(simp_layers) * plane);
     std::vector<float> elev_g_simp(static_cast<size_t>(simp_layers) * plane);
