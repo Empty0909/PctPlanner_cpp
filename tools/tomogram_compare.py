@@ -254,48 +254,108 @@ def compare_tomograms(cpp: Tomogram, py: Tomogram, abs_tol: float, rel_tol: floa
         return False
 
     delta = cpp.data - py.data
-    max_abs = float(np.nanmax(np.abs(delta)))
-    rms = float(np.sqrt(np.nanmean(np.where(np.isfinite(delta), delta, 0) ** 2)))
+    
+    # 使用 nanmax/nanmean 来处理 nan 值
+    abs_delta = np.abs(delta)
+    finite_mask = np.isfinite(abs_delta)
+    max_abs = float(np.nanmax(abs_delta))
+    rms = float(np.sqrt(np.nanmean(np.where(finite_mask, delta**2, 0))))
     denom = np.maximum(np.abs(py.data), 1e-12)
-    max_rel = float(np.nanmax(np.abs(delta) / denom))
+    rel_delta = np.where(finite_mask, abs_delta / denom, 0)
+    max_rel = float(np.nanmax(rel_delta))
     condition = (max_abs <= abs_tol) or (max_rel <= rel_tol)
     check(condition, "voxel data", f"max_abs={max_abs:.3e}, max_rel={max_rel:.3e}, rms={rms:.3e}")
 
-    # Trav layer difference distribution
-    trav_diff = delta[0]
-    trav_diff_finite = np.where(np.isfinite(trav_diff), trav_diff, 0)
-    abs_diff = np.abs(trav_diff_finite)
-    exact_match = np.sum(abs_diff < 0.01)
-    small_diff = np.sum((abs_diff >= 0.01) & (abs_diff < 1.0))
-    medium_diff = np.sum((abs_diff >= 1.0) & (abs_diff < 10.0))
-    large_diff = np.sum((abs_diff >= 10.0) & (abs_diff < 50.0))
-    barrier_diff = np.sum(abs_diff >= 50.0)
-    total = trav_diff.size
+    # 总体体素统计
+    total_voxels = cpp.data.size
+    nan_cpp = np.sum(np.isnan(cpp.data))
+    nan_py = np.sum(np.isnan(py.data))
+    nan_both = np.sum(np.isnan(cpp.data) & np.isnan(py.data))
+    nan_cpp_only = np.sum(np.isnan(cpp.data) & ~np.isnan(py.data))
+    nan_py_only = np.sum(~np.isnan(cpp.data) & np.isnan(py.data))
+    print(f"\n=== 体素总体统计 ===")
+    print(f"    总体素数: {total_voxels:,} ({cpp.data.shape})")
+    print(f"    NaN统计: C++有nan={nan_cpp:,}, Py有nan={nan_py:,}, 双方都是nan={nan_both:,}")
+    print(f"    NaN不一致: 仅C++是nan={nan_cpp_only:,}, 仅Py是nan={nan_py_only:,}")
     
-    print(f"\n    Trav layer difference distribution:")
-    print(f"      Exact match (<0.01): {exact_match} ({100*exact_match/total:.2f}%)")
-    print(f"      Small diff (0.01-1): {small_diff} ({100*small_diff/total:.2f}%)")
-    print(f"      Medium diff (1-10): {medium_diff} ({100*medium_diff/total:.2f}%)")
-    print(f"      Large diff (10-50): {large_diff} ({100*large_diff/total:.2f}%)")
-    print(f"      Barrier diff (>=50): {barrier_diff} ({100*barrier_diff/total:.2f}%)")
+    # 忽略双方都是nan的位置进行比较
+    valid_mask = np.isfinite(cpp.data) | np.isfinite(py.data)
+    valid_delta = np.where(valid_mask & finite_mask, abs_delta, np.nan)
     
-    # 找一个差异大的位置看看
-    if np.max(abs_diff) > 1:
-        max_idx = np.unravel_index(np.argmax(abs_diff), trav_diff.shape)
-        s, x, y = max_idx
-        print(f"\n    Max trav diff at {max_idx}: C++={cpp.data[0][max_idx]:.3f}, Py={py.data[0][max_idx]:.3f}")
-        print(f"    Neighborhood at slice {s}, x={x}, y={y}:")
-        print(f"    C++ trav:\n{cpp.data[0, s, max(0,x-2):x+3, max(0,y-2):y+3]}")
-        print(f"    Py  trav:\n{py.data[0, s, max(0,x-2):x+3, max(0,y-2):y+3]}")
-        print(f"    C++ elev_g:\n{cpp.data[3, s, max(0,x-2):x+3, max(0,y-2):y+3]}")
-        print(f"    Py  elev_g:\n{py.data[3, s, max(0,x-2):x+3, max(0,y-2):y+3]}")
+    # 差异分布统计
+    exact_match = np.sum(valid_delta < 0.01)
+    small_diff = np.sum((valid_delta >= 0.01) & (valid_delta < 1))
+    medium_diff = np.sum((valid_delta >= 1) & (valid_delta < 10))
+    large_diff = np.sum((valid_delta >= 10) & (valid_delta < 50))
+    barrier_diff = np.sum(valid_delta >= 50)
+    valid_count = np.sum(np.isfinite(valid_delta))
+    
+    print(f"\n=== 差异分布 (有效比较: {valid_count:,}) ===")
+    print(f"    精确匹配 (<0.01):  {exact_match:,} ({100*exact_match/valid_count:.2f}%)")
+    print(f"    小差异 (0.01-1):   {small_diff:,} ({100*small_diff/valid_count:.2f}%)")
+    print(f"    中差异 (1-10):     {medium_diff:,} ({100*medium_diff/valid_count:.2f}%)")
+    print(f"    大差异 (10-50):    {large_diff:,} ({100*large_diff/valid_count:.2f}%)")
+    print(f"    屏障差异 (>=50):   {barrier_diff:,} ({100*barrier_diff/valid_count:.2f}%)")
 
-    # Per-layer stats for easier inspection
+    # 按层类型(trav, trav_gx等)统计
+    print(f"\n=== 按层类型统计 ===")
     for idx, name in enumerate(LAYER_NAMES):
         layer_delta = delta[idx]
-        layer_max = float(np.nanmax(np.abs(layer_delta)))
-        layer_rms = float(np.sqrt(np.nanmean(np.where(np.isfinite(layer_delta), layer_delta, 0) ** 2)))
-        print(f"    Layer {idx} ({name}): max_abs={layer_max:.3e}, rms={layer_rms:.3e}")
+        layer_abs = np.abs(layer_delta)
+        layer_finite = np.isfinite(layer_abs)
+        layer_max = float(np.nanmax(layer_abs))
+        layer_rms = float(np.sqrt(np.nanmean(np.where(layer_finite, layer_delta**2, 0))))
+        
+        # 该层的匹配统计
+        layer_valid = np.sum(layer_finite)
+        layer_exact = np.sum(layer_abs[layer_finite] < 0.01)
+        layer_match_pct = 100 * layer_exact / layer_valid if layer_valid > 0 else 0
+        
+        # nan 统计
+        layer_nan_cpp = np.sum(np.isnan(cpp.data[idx]))
+        layer_nan_py = np.sum(np.isnan(py.data[idx]))
+        
+        print(f"    {name}: max={layer_max:.3e}, rms={layer_rms:.3e}, "
+              f"match={layer_match_pct:.2f}%, nan(C++/Py)={layer_nan_cpp}/{layer_nan_py}")
+
+    # 按切片层统计 (每个高度层)
+    n_slice = cpp.n_slice
+    print(f"\n=== 按切片高度统计 (共{n_slice}层) ===")
+    print(f"    {'切片':>4} | {'高度':>6} | {'max_abs':>10} | {'rms':>10} | {'匹配率':>8} | {'nan(C++/Py)':>12}")
+    print(f"    {'-'*4}-+-{'-'*6}-+-{'-'*10}-+-{'-'*10}-+-{'-'*8}-+-{'-'*12}")
+    
+    for s in range(n_slice):
+        slice_cpp = cpp.data[:, s, :, :]
+        slice_py = py.data[:, s, :, :]
+        slice_delta = slice_cpp - slice_py
+        slice_abs = np.abs(slice_delta)
+        slice_finite = np.isfinite(slice_abs)
+        
+        slice_max = float(np.nanmax(slice_abs))
+        slice_rms = float(np.sqrt(np.nanmean(np.where(slice_finite, slice_delta**2, 0))))
+        
+        slice_valid = np.sum(slice_finite)
+        slice_exact = np.sum(slice_abs[slice_finite] < 0.01)
+        slice_match_pct = 100 * slice_exact / slice_valid if slice_valid > 0 else 0
+        
+        slice_nan_cpp = np.sum(np.isnan(slice_cpp))
+        slice_nan_py = np.sum(np.isnan(slice_py))
+        
+        height = cpp.slice_heights[s]
+        print(f"    {s:>4} | {height:>6.2f} | {slice_max:>10.3e} | {slice_rms:>10.3e} | "
+              f"{slice_match_pct:>7.2f}% | {slice_nan_cpp:>5}/{slice_nan_py:<5}")
+
+    # 找出最大差异的位置
+    print(f"\n=== 最大差异位置分析 ===")
+    for idx, name in enumerate(LAYER_NAMES):
+        layer_delta = np.abs(delta[idx])
+        layer_delta_safe = np.where(np.isfinite(layer_delta), layer_delta, 0)
+        max_idx = np.unravel_index(np.argmax(layer_delta_safe), layer_delta.shape)
+        max_val = layer_delta_safe[max_idx]
+        cpp_val = cpp.data[idx][max_idx]
+        py_val = py.data[idx][max_idx]
+        print(f"    {name}: 最大差异={max_val:.3e} at slice={max_idx[0]}, x={max_idx[1]}, y={max_idx[2]}")
+        print(f"           C++={cpp_val:.6f}, Py={py_val:.6f}")
 
     return ok and condition
 
