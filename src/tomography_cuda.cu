@@ -1,5 +1,6 @@
 #include "tomography_cuda.hpp"
 
+#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
 #include <cmath>
@@ -85,11 +86,22 @@ __global__ void TomographyKernel(const float3 *points, int num_points,
   float pz = points[idx].z;
 
   // 索引计算与 Python kernels.py 完全一致:
+  // Python 使用 float16 类型进行索引计算，我们也需要使用 half 类型
   // Python: i = round((x - center) / resolution)  // 先 round 成整数
   //         idx_x = i + n_row / 2                  // 再加偏移
   // 这里 n_row = dim_x, n_col = dim_y
-  int ix = static_cast<int>(roundf((px - cx) / resolution)) + dim_x / 2;
-  int iy = static_cast<int>(roundf((py - cy) / resolution)) + dim_y / 2;
+  __half px_h = __float2half(px);
+  __half py_h = __float2half(py);
+  __half cx_h = __float2half(cx);
+  __half cy_h = __float2half(cy);
+  __half res_h = __float2half(resolution);
+
+  // 使用 half 精度计算索引
+  float val_x = __half2float(__hdiv(__hsub(px_h, cx_h), res_h));
+  float val_y = __half2float(__hdiv(__hsub(py_h, cy_h), res_h));
+
+  int ix = static_cast<int>(roundf(val_x)) + dim_x / 2;
+  int iy = static_cast<int>(roundf(val_y)) + dim_y / 2;
   if (ix < 0 || ix >= dim_x || iy < 0 || iy >= dim_y)
     return;
 
