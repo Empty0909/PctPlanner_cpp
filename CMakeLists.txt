@@ -119,6 +119,7 @@ install(TARGETS
 
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
+install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
 install(DIRECTORY rsc/ DESTINATION share/${PROJECT_NAME}/rsc)
 
 # 安装依赖动态库到本包 lib，便于运行时就近加载

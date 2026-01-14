@@ -398,8 +398,8 @@ ros2 launch pct_planner_cpp_port pct_all.launch.py \
   tomo_path:=$PWD/rsc/tomogram/scene_map.bin \
   pcd_path:=$PWD/trajectory_offline.pcd \
   publish_start_end:=true \
-  start_x:=0.0 start_y:=0.0 start_z:=0.0 \
-  end_x:=5.0 end_y:=5.0 end_z:=0.0
+  start_x:=5.63 start_y:=15.0 start_z:=0.0 \
+  end_x:=-9.68 end_y:=6.95 end_z:=0.0
 ```
 
 ---

@@ -160,13 +160,15 @@ private:
     }
 
     // 记录缺失地面/顶部的掩码，仅用于可视化过滤；不改写原始高度，保持与原版一致
+    // 阈值与 Python 版本一致：Python 使用 > -1e6 判断有效，这里用 <= -1e6 + 1
+    // 判断缺失 原版使用 -9e5f 会导致 -999999 等值被错误标记为缺失
     std::vector<uint8_t> missing_ground(gpu_out.elev_g.size(), 0);
     std::vector<uint8_t> missing_ceiling(gpu_out.elev_c.size(), 0);
     for (size_t i = 0; i < gpu_out.elev_g.size(); ++i) {
-      if (gpu_out.elev_g[i] <= -9e5f) {
+      if (gpu_out.elev_g[i] <= -1e6f + 1.0f) {
         missing_ground[i] = 1;
       }
-      if (gpu_out.elev_c[i] >= 9e5f) {
+      if (gpu_out.elev_c[i] >= 1e6f - 1.0f) {
         missing_ceiling[i] = 1;
       }
     }

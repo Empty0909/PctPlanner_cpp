@@ -85,21 +85,26 @@ __global__ void TomographyKernel(const float3 *points, int num_points,
   float py = points[idx].y;
   float pz = points[idx].z;
 
-  // 索引计算与 Python kernels.py 完全一致:
-  // Python 使用 float16 类型进行索引计算，我们也需要使用 half 类型
-  // Python: i = round((x - center) / resolution)  // 先 round 成整数
-  //         idx_x = i + n_row / 2                  // 再加偏移
-  // 这里 n_row = dim_x, n_col = dim_y
+  // 索引计算与 Python kernels.py 严格对齐:
+  // Python: int i = round((x - center) / ${resolution})
+  // Python 中 x, center 是 float16，${resolution} 是字面量常数
+  // 运算过程：减法在 float16 精度，除法时提升到 float 与字面量运算
   __half px_h = __float2half(px);
   __half py_h = __float2half(py);
   __half cx_h = __float2half(cx);
   __half cy_h = __float2half(cy);
-  __half res_h = __float2half(resolution);
 
-  // 使用 half 精度计算索引
-  float val_x = __half2float(__hdiv(__hsub(px_h, cx_h), res_h));
-  float val_y = __half2float(__hdiv(__hsub(py_h, cy_h), res_h));
+  // 差值在 half 精度（与 Python 一致）
+  float diff_x = __half2float(__hsub(px_h, cx_h));
+  float diff_y = __half2float(__hsub(py_h, cy_h));
+  // 除法在 float 精度（与 Python 一致，因为 Python 的 ${resolution}
+  // 是字面量常数）
+  float val_x = diff_x / resolution;
+  float val_y = diff_y / resolution;
 
+  // Python CuPy kernel 使用 round()，在 CUDA 中 round() 使用四舍五入
+  // (round half away from zero)，与 roundf() 行为一致
+  // 注意：rintf() 使用银行家舍入，与 Python 的 round() 不同！
   int ix = static_cast<int>(roundf(val_x)) + dim_x / 2;
   int iy = static_cast<int>(roundf(val_y)) + dim_y / 2;
   if (ix < 0 || ix >= dim_x || iy < 0 || iy >= dim_y)
@@ -107,8 +112,20 @@ __global__ void TomographyKernel(const float3 *points, int num_points,
 
   // 与 Python 一致: base = dim_y * ix + iy (Python: n_col * idx_x + idx_y)
   int base = dim_y * ix + iy;
+
+  // slice 计算与 Python 对齐：
+  // Python: U slice = ${slice_h0} + s_idx * ${slice_dh}
+  // Python 中 U 是 float16，但 ${slice_h0} 和 ${slice_dh} 是字面量
+  // 为严格对齐，使用 half 精度计算 slice
+  __half slice_h0_h = __float2half(slice_h0);
+  __half slice_dh_h = __float2half(slice_dh);
+
   for (int s = 0; s < n_slice; ++s) {
-    float slice = slice_h0 + slice_dh * static_cast<float>(s);
+    // 与 Python 一致：slice = slice_h0 + s * slice_dh，在 half 精度下计算
+    __half s_h = __float2half(static_cast<float>(s));
+    __half slice_h = __hadd(slice_h0_h, __hmul(s_h, slice_dh_h));
+    float slice = __half2float(slice_h);
+
     int offset = s * dim_x * dim_y + base;
     if (pz <= slice) {
       atomicMaxFloat(&layers_g[offset], pz);

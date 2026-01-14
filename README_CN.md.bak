@@ -117,8 +117,8 @@ ros2 launch pct_planner_cpp_port pct_all.launch.py \
 ```bash
 ros2 launch pct_planner_cpp_port pct_all.launch.py \
    enable_planner:=false enable_pcd_publisher:=false enable_planner_direct:=true \
-   tomo_path:=$PWD/rsc/tomogram/scene_map.bin pcd_path:=$PWD/trajectory_offline.pcd \
-   publish_start_end:=true start_x:=0.0 start_y:=0.0 start_z:=0.0 end_x:=5.0 end_y:=5.0 end_z:=0.0
+   tomo_path:=/home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_py.bin pcd_path:=$PWD/trajectory_offline.pcd \
+   publish_start_end:=true start_x:=5.63 start_y:=15 start_z:=0 end_x:=-9.68 end_y:=6.95 end_z:=0
 ```
 
 1) 仅点云与建图，手动发布起终点
@@ -145,7 +145,26 @@ ros2 topic pub --once /end_pos   geometry_msgs/msg/Point "{x: -8.03, y: 6.6, z: 
 - 提交前清理 `build/`、`install/`、`log/`。
 
 对比两个版本代价地图
-cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools
+测试一：
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
 python3 tomogram_compare.py \
-  --bin ../rsc/tomogram/scene_map.bin \
-  --pickle ../../PctPlanner_py/rsc/tomogram/scene_map.pickle
+  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
+  --pickle /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle
+
+测试二：
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
+python3 tomogram_compare.py \
+  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
+  --pickle /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_cpp.pickle
+
+测试三：
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
+python3 tomogram_compare.py \
+  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_py.bin \
+  --pickle /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle
+
+测试四：
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
+python3 tomogram_compare.py \
+  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_py.bin \
+  --pickle /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_cpp.pickle
