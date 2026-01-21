@@ -356,7 +356,16 @@ private:
     }
   }
 
-  // 计算 trav 梯度，与 Python 版本保持一致
+  // 计算 trav 梯度，与 Python 版本严格对齐
+  // Python 代码:
+  //   trav_grad_x = inflated_cost[:, 2:, :] - inflated_cost[:, :-2, :]
+  //   trav_grad_y = inflated_cost[:, :, 2:] - inflated_cost[:, :, :-2]
+  //   trav_gx[:, 1:-1, :] = trav_grad_x  # x=1 到 x=dim_x-2，所有 y
+  //   trav_gy[:, :, 1:-1] = trav_grad_y  # 所有 x，y=1 到 y=dim_y-2
+  //
+  // 关键区别：
+  // - trav_gx 在 x 边界为 0，但在 y 边界有值
+  // - trav_gy 在 y 边界为 0，但在 x 边界有值
   // 布局: [slice][x][y]，索引 = dim_y * x + y
   void ComputeTravGradient(uint32_t n_slice, uint32_t dim_x, uint32_t dim_y,
                            const std::vector<float> &cost,
@@ -364,13 +373,21 @@ private:
     const size_t plane = static_cast<size_t>(dim_x) * dim_y;
     for (uint32_t s = 0; s < n_slice; ++s) {
       const size_t offset = static_cast<size_t>(s) * plane;
+
+      // gx: x 方向梯度，x=1 到 x=dim_x-2，所有 y 位置
       for (uint32_t x = 1; x + 1 < dim_x; ++x) {
-        for (uint32_t y = 1; y + 1 < dim_y; ++y) {
-          // idx = dim_y * x + y
+        for (uint32_t y = 0; y < dim_y; ++y) {
           const size_t idx = offset + static_cast<size_t>(x) * dim_y + y;
-          // gx: x方向梯度，偏移量 ±dim_y
+          // gx = cost[x+1, y] - cost[x-1, y]，偏移量 ±dim_y
           gx[idx] = cost[idx + dim_y] - cost[idx - dim_y];
-          // gy: y方向梯度，偏移量 ±1
+        }
+      }
+
+      // gy: y 方向梯度，所有 x 位置，y=1 到 y=dim_y-2
+      for (uint32_t x = 0; x < dim_x; ++x) {
+        for (uint32_t y = 1; y + 1 < dim_y; ++y) {
+          const size_t idx = offset + static_cast<size_t>(x) * dim_y + y;
+          // gy = cost[x, y+1] - cost[x, y-1]，偏移量 ±1
           gy[idx] = cost[idx + 1] - cost[idx - 1];
         }
       }

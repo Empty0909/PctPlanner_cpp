@@ -557,11 +557,12 @@ PctPlanner_Cpp/
 ├── package.xml             # ROS2 包配置
 ├── README_CN.md            # 中文文档（本文件）
 ├── README.md               # 英文文档
+├── .gitignore              # Git 忽略规则
 │
 ├── config/
 │   └── scene_default.yaml  # 默认参数配置
 │
-├── include/
+├── include/                # 头文件
 │   ├── planner_common.hpp  # 规划器公共定义
 │   ├── tomogram_format.hpp # Tomogram 二进制格式
 │   └── tomography_cuda.hpp # CUDA 断层建图接口
@@ -577,19 +578,25 @@ PctPlanner_Cpp/
 ├── launch/
 │   └── pct_all.launch.py   # 一键启动脚本
 │
-├── planner_lib/            # 预编译规划库
-│   ├── libpct_planner.so   # 规划器核心库
+├── planner_lib/            # 预编译规划库（已包含，无需重建）
+│   ├── lib*.so             # 规划器核心库
 │   └── 3rdparty/
 │       └── gtsam-4.1.1/    # GTSAM 预编译库
 │
 ├── rsc/                    # 资源文件
 │   ├── pcd/               # 示例点云
-│   ├── tomogram/          # 示例 Tomogram
-│   └── rviz/              # RViz 配置
+│   ├── tomogram/          # 生成的 Tomogram 文件
+│   └── rviz/              # RViz 配置文件
 │
-└── tools/                  # 辅助工具
-    └── tomogram_compare.py # Python/C++ 版本对比
+├── tools/                  # 辅助工具脚本
+│   └── rsc_compare/       # Python/C++ 版本对比工具
+│
+├── build/                  # 🔧 colcon 编译产物（自动生成，已 gitignore）
+├── install/                # 📦 colcon 安装目录（自动生成，已 gitignore）
+└── log/                    # 📝 colcon 编译日志（自动生成，已 gitignore）
 ```
+
+> ⚠️ **注意**：`build/`、`install/`、`log/` 目录由 `colcon build` 自动生成，已添加到 `.gitignore`，不会提交到版本控制。
 
 ---
 
@@ -607,3 +614,33 @@ PctPlanner_Cpp/
 ---
 
 📝 **如有问题，欢迎提交 Issue 或 Pull Request！**
+
+
+对比两个版本代价地图
+测试一：
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
+python3 tomogram_compare.py \
+  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
+  --pickle /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle
+
+
+测试二：
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
+python3 tomogram_compare.py \
+  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
+  --pickle /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_cpp.pickle
+
+
+测试三：
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
+python3 tomogram_compare.py \
+  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_py.bin \
+  --pickle /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle
+
+
+测试四：
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
+python3 tomogram_compare.py \
+  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_py.bin \
+  --pickle /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_cpp.pickle
+

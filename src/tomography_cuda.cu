@@ -75,7 +75,7 @@ __global__ void ClearKernel(float *layers_g, float *layers_c,
 
 __global__ void TomographyKernel(const float3 *points, int num_points,
                                  float *layers_g, float *layers_c, float cx,
-                                 float cy, float resolution, int dim_x,
+                                 float cy, double resolution, int dim_x,
                                  int dim_y, int n_slice, float slice_h0,
                                  float slice_dh) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -86,27 +86,42 @@ __global__ void TomographyKernel(const float3 *points, int num_points,
   float pz = points[idx].z;
 
   // 索引计算与 Python kernels.py 严格对齐:
-  // Python: int i = round((x - center) / ${resolution})
-  // Python 中 x, center 是 float16，${resolution} 是字面量常数
-  // 运算过程：减法在 float16 精度，除法时提升到 float 与字面量运算
+  // Python 中 getIndexLine(float16 x, float16 center) 定义如下:
+  //   int i = round((x - center) / ${resolution});
+  //
+  // 关键发现：CuPy 的 float16 类有隐式转换到 float 的 operator：
+  //   __device__ operator float() const {return float(data_);}
+  // 因此 (x - center) 实际上是：
+  //   float(x) - float(center)  // float32 精度的减法！
+  // 而不是 __hsub(x, center)   // half 精度的减法
+  //
+  // ${resolution} 是模板替换的字面量（无 f 后缀），在 CUDA 中是 double 类型。
+  // 所以完整的运算过程是:
+  // 1. x, center 先转成 half (float16 构造函数)
+  // 2. 减法时隐式转 float，在 float 精度下做减法
+  // 3. 除法时 float 差值提升到 double，与 double 字面量运算
+  // 4. round() 在 double 精度下进行
+
+  // 步骤1: 转成 half（与 Python float16 构造相同）
   __half px_h = __float2half(px);
   __half py_h = __float2half(py);
   __half cx_h = __float2half(cx);
   __half cy_h = __float2half(cy);
 
-  // 差值在 half 精度（与 Python 一致）
-  float diff_x = __half2float(__hsub(px_h, cx_h));
-  float diff_y = __half2float(__hsub(py_h, cy_h));
-  // 除法在 float 精度（与 Python 一致，因为 Python 的 ${resolution}
-  // 是字面量常数）
-  float val_x = diff_x / resolution;
-  float val_y = diff_y / resolution;
+  // 步骤2: 转回 float 再做减法（与 Python float16 的隐式转换相同）
+  // 注意：这里是先转 float 再减，不是用 __hsub！
+  float diff_x = __half2float(px_h) - __half2float(cx_h);
+  float diff_y = __half2float(py_h) - __half2float(cy_h);
+
+  // 步骤3: 除法在 double 精度（resolution 是 double 类型）
+  double val_x = static_cast<double>(diff_x) / resolution;
+  double val_y = static_cast<double>(diff_y) / resolution;
 
   // Python CuPy kernel 使用 round()，在 CUDA 中 round() 使用四舍五入
   // (round half away from zero)，与 roundf() 行为一致
   // 注意：rintf() 使用银行家舍入，与 Python 的 round() 不同！
-  int ix = static_cast<int>(roundf(val_x)) + dim_x / 2;
-  int iy = static_cast<int>(roundf(val_y)) + dim_y / 2;
+  int ix = static_cast<int>(round(val_x)) + dim_x / 2;
+  int iy = static_cast<int>(round(val_y)) + dim_y / 2;
   if (ix < 0 || ix >= dim_x || iy < 0 || iy >= dim_y)
     return;
 
@@ -115,16 +130,13 @@ __global__ void TomographyKernel(const float3 *points, int num_points,
 
   // slice 计算与 Python 对齐：
   // Python: U slice = ${slice_h0} + s_idx * ${slice_dh}
-  // Python 中 U 是 float16，但 ${slice_h0} 和 ${slice_dh} 是字面量
-  // 为严格对齐，使用 half 精度计算 slice
-  __half slice_h0_h = __float2half(slice_h0);
-  __half slice_dh_h = __float2half(slice_dh);
+  // Python 中 U 是模板类型，由第一个数组（points）的 dtype 推断
+  // 由于 points 是 float32，所以 U = float32
+  // 因此 slice 计算应该在 float32 精度下进行！
 
   for (int s = 0; s < n_slice; ++s) {
-    // 与 Python 一致：slice = slice_h0 + s * slice_dh，在 half 精度下计算
-    __half s_h = __float2half(static_cast<float>(s));
-    __half slice_h = __hadd(slice_h0_h, __hmul(s_h, slice_dh_h));
-    float slice = __half2float(slice_h);
+    // 与 Python 一致：slice = slice_h0 + s * slice_dh，在 float32 精度下计算
+    float slice = slice_h0 + static_cast<float>(s) * slice_dh;
 
     int offset = s * dim_x * dim_y + base;
     if (pz <= slice) {
@@ -313,9 +325,8 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
 
   TomographyKernel<<<blocks_points, threads>>>(
       d_points, static_cast<int>(points.size()), d_layers_g, d_layers_c, cx, cy,
-      static_cast<float>(params.resolution), static_cast<int>(dim_x),
-      static_cast<int>(dim_y), static_cast<int>(n_slice), slice_h0,
-      static_cast<float>(params.slice_dh));
+      params.resolution, static_cast<int>(dim_x), static_cast<int>(dim_y),
+      static_cast<int>(n_slice), slice_h0, static_cast<float>(params.slice_dh));
   CUDA_CHECK(cudaDeviceSynchronize());
 
   GradIntervalKernel<<<blocks, threads>>>(
