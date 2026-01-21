@@ -525,6 +525,39 @@ private:
         slice_heights.size() < n_slice)
       return;
 
+    // 与Python一致：复制数据进行可视化处理
+    // vis_g[s][idx] 为NaN表示跳过，vis_t是可能被修改的代价值
+    std::vector<std::vector<float>> vis_g(n_slice, std::vector<float>(plane));
+    std::vector<std::vector<float>> vis_t(n_slice, std::vector<float>(plane));
+
+    // 复制原始数据
+    for (uint32_t s = 0; s < n_slice; ++s) {
+      std::copy(elev_g.begin() + static_cast<size_t>(s) * plane,
+                elev_g.begin() + static_cast<size_t>(s + 1) * plane,
+                vis_g[s].begin());
+      std::copy(trav.begin() + static_cast<size_t>(s) * plane,
+                trav.begin() + static_cast<size_t>(s + 1) * plane,
+                vis_t[s].begin());
+    }
+
+    // 与Python完全一致的遮挡处理逻辑：
+    // for i in range(n_slice - 1):
+    //     mask_h = (vis_g[i + 1] - vis_g[i]) < self.slice_dh
+    //     vis_g[i, mask_h] = np.nan          # 下层被遮挡，设为nan
+    //     vis_t[i + 1, mask_h] = np.minimum(vis_t[i, mask_h], vis_t[i + 1,
+    //     mask_h])
+    for (uint32_t s = 0; s + 1 < n_slice; ++s) {
+      for (size_t idx = 0; idx < plane; ++idx) {
+        const float dh = vis_g[s + 1][idx] - vis_g[s][idx];
+        if (dh < static_cast<float>(slice_dh_)) {
+          // 下层被遮挡，设为NaN跳过
+          vis_g[s][idx] = std::numeric_limits<float>::quiet_NaN();
+          // 关键：上层代价取下层和上层的最小值
+          vis_t[s + 1][idx] = std::min(vis_t[s][idx], vis_t[s + 1][idx]);
+        }
+      }
+    }
+
     std::vector<float> buffer;
     buffer.reserve(total * 4);
 
@@ -532,24 +565,17 @@ private:
     const float oy = static_cast<float>(dim_y) / 2.0f;
 
     for (uint32_t s = 0; s < n_slice; ++s) {
-      const float *trav_s = trav.data() + static_cast<size_t>(s) * plane;
-      const float *elev_s = elev_g.data() + static_cast<size_t>(s) * plane;
-      const float *elev_next =
-          (s + 1 < n_slice) ? elev_g.data() + static_cast<size_t>(s + 1) * plane
-                            : nullptr;
       const uint8_t *miss_s =
           missing_ground.data() + static_cast<size_t>(s) * plane;
 
       // 遍历顺序与数据布局一致: [slice][x][y]
       for (uint32_t x = 0; x < dim_x; ++x) {
         for (uint32_t y = 0; y < dim_y; ++y) {
-          // idx = dim_y * x + y
           const size_t idx = static_cast<size_t>(x) * dim_y + y;
-          if (elev_next) {
-            const float dh = std::fabs(elev_next[idx] - elev_s[idx]);
-            if (dh < static_cast<float>(slice_dh_))
-              continue; // 相邻切片高度差太小，视作重复/遮挡
-          }
+
+          // 与Python一致：vis_g为NaN表示被遮挡，跳过
+          if (std::isnan(vis_g[s][idx]))
+            continue;
 
           // 缺失地面处跳过渲染，避免铺底平面
           if (miss_s[idx])
@@ -557,10 +583,10 @@ private:
 
           const float wx = (static_cast<float>(x) - ox) * resolution + cx;
           const float wy = (static_cast<float>(y) - oy) * resolution + cy;
-          const float wz = elev_s[idx];
+          const float wz = vis_g[s][idx]; // 使用vis_g
           // 可视化用：将代价钳位到 RViz 可显示范围（0~50，与 Python 原版一致）
-          // 内部规划仍用原始 inflated_cost（包含 1e6 障碍）
-          const float raw_inten = trav_s[idx];
+          const float raw_inten =
+              vis_t[s][idx]; // 使用vis_t（已处理过遮挡代价传递）
           const float inten = std::min(raw_inten, 50.0f);
 
           buffer.push_back(wx);
