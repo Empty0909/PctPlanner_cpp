@@ -2,7 +2,8 @@
 """
 Python 版本规划测试
 
-使用 Python 版本的规划库 + Python 版本的 tomogram pickle 文件
+使用 Python 版本的规划库
+支持 Python 版本的 tomogram pickle 文件 或 C++ 版本的 tomogram bin 文件
 """
 
 import os
@@ -11,6 +12,7 @@ import csv
 import json
 import time
 import pickle
+import struct
 import argparse
 import traceback
 
@@ -33,7 +35,7 @@ os.environ['LD_LIBRARY_PATH'] = PYTHON_LIB_PATH + ':' + os.environ.get('LD_LIBRA
 
 # 导入 Python 版本的库
 from lib import a_star, ele_planner, traj_opt
-from scripts.planner_wrapper import TomogramPlanner
+from scripts.planner_wrapper import TomogramPlanner, load_tomogram_binary
 from config import Config
 
 # 默认路径 - Python 版本的 tomogram
@@ -66,18 +68,22 @@ class PythonVersionPlanner:
     
     使用：
     - Python 版本的 ele_planner 库
-    - Python 版本的 tomogram pickle 文件
+    - Python 版本的 tomogram pickle 文件 或 C++ 版本的 bin 文件
     """
     
-    def __init__(self, pickle_path: str):
+    def __init__(self, tomo_path: str):
         self.cfg = Config()
-        
-        # 加载 Python 版本的 tomogram
-        print(f"  加载 Python tomogram: {pickle_path}")
-        with open(pickle_path, 'rb') as f:
-            data_dict = pickle.load(f)
-        
         self.planner = TomogramPlanner(self.cfg)
+        
+        # 自动识别格式并加载
+        if tomo_path.endswith('.bin'):
+            print(f"  加载 C++ 二进制格式 tomogram: {tomo_path}")
+            data_dict = load_tomogram_binary(tomo_path)
+        else:
+            print(f"  加载 Python pickle 格式 tomogram: {tomo_path}")
+            with open(tomo_path, 'rb') as f:
+                data_dict = pickle.load(f)
+        
         self.planner._initialize_from_dict(data_dict)
         
         # 获取库版本信息
@@ -97,10 +103,10 @@ class PythonVersionPlanner:
 import gc
 
 
-def run_tests(test_cases: list, pickle_path: str, output_path: str, verbose: bool = False) -> dict:
+def run_tests(test_cases: list, tomo_path: str, output_path: str, verbose: bool = False) -> dict:
     """执行测试 - 增量保存结果以减少内存使用"""
     print("初始化 Python 版本规划器...", file=sys.stderr)
-    planner = PythonVersionPlanner(pickle_path)
+    planner = PythonVersionPlanner(tomo_path)
     
     results = {}
     success_count = 0
@@ -154,8 +160,9 @@ def run_tests(test_cases: list, pickle_path: str, output_path: str, verbose: boo
 
 def main():
     parser = argparse.ArgumentParser(description='Python 版本规划测试')
-    parser.add_argument('--pickle', type=str, default=DEFAULT_PICKLE_PATH,
-                        help='Python 版本 Tomogram pickle 文件路径')
+    parser.add_argument('--pickle', '--tomo', type=str, default=DEFAULT_PICKLE_PATH,
+                        dest='tomo_path',
+                        help='Tomogram 文件路径 (.pickle 或 .bin)')
     parser.add_argument('--input', type=str, default=DEFAULT_INPUT_CSV,
                         help='输入测试用例 CSV 文件')
     parser.add_argument('--output', type=str, default=DEFAULT_OUTPUT_JSON,
@@ -180,7 +187,7 @@ def main():
     print("Python 版本规划测试")
     print("=" * 60)
     print(f"  库路径: {PYTHON_LIB_PATH}")
-    print(f"  Tomogram: {args.pickle}")
+    print(f"  Tomogram: {args.tomo_path}")
     
     # 加载测试用例
     print(f"\n加载测试用例: {args.input}", file=sys.stderr)
@@ -194,7 +201,7 @@ def main():
     # 执行测试
     print(f"\n开始测试...", file=sys.stderr)
     start_time = time.time()
-    results = run_tests(test_cases, args.pickle, args.output, args.verbose)
+    results = run_tests(test_cases, args.tomo_path, args.output, args.verbose)
     total_time = time.time() - start_time
     
     # 统计
@@ -217,7 +224,7 @@ def main():
         json.dump({
             'version': 'python',
             'lib_path': PYTHON_LIB_PATH,
-            'tomogram_path': args.pickle,
+            'tomogram_path': args.tomo_path,
             'summary': {
                 'total': len(results),
                 'success': success_count,

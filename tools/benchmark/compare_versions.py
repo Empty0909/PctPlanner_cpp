@@ -198,10 +198,10 @@ def generate_report(python_results: Dict, cpp_results: Dict,
 
 | 类别 | 数量 | 占比 |
 |------|------|------|
-| 双方成功 | {both_success} | {both_success/total*100:.1f}% |
-| 双方失败 | {both_fail} | {both_fail/total*100:.1f}% |
-| 仅 Python 成功 | {python_only} | {python_only/total*100:.1f}% |
-| 仅 C++ 成功 | {cpp_only} | {cpp_only/total*100:.1f}% |
+| 双方成功 | {both_success} | {both_success/total*100 if total > 0 else 0:.1f}% |
+| 双方失败 | {both_fail} | {both_fail/total*100 if total > 0 else 0:.1f}% |
+| 仅 Python 成功 | {python_only} | {python_only/total*100 if total > 0 else 0:.1f}% |
+| 仅 C++ 成功 | {cpp_only} | {cpp_only/total*100 if total > 0 else 0:.1f}% |
 
 ## 轨迹误差分析
 

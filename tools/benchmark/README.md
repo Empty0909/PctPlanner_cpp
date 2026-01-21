@@ -78,13 +78,34 @@ export LD_LIBRARY_PATH=/home/lzy/PctPlanner/PctPlanner_Cpp/planner_lib:/home/lzy
 python3 run_batch.py --version cpp --input data/test_cases_10k.csv --output results/cpp_results.json --limit 100
 ```
 
+### 4. 使用自定义代价地图（新功能）
+
+两个版本都支持使用 `--tomo` 参数指定代价地图路径，支持 `.bin` 和 `.pickle` 格式：
+
+```bash
+# Python 版本使用 C++ 生成的二进制代价地图
+python3 run_batch.py --version python \
+    --input data/test_cases_10k.csv \
+    --output results/python_with_cpp_map.json \
+    --tomo /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
+    --limit 1000
+
+# C++ 版本使用默认代价地图
+python3 run_batch.py --version cpp \
+    --input data/test_cases_10k.csv \
+    --output results/cpp_results.json \
+    --limit 1000
+```
+
+这样可以验证**相同代价地图下，两个版本规划结果的一致性**。
+
 ### 4. 对比分析
 
 ```bash
 python3 compare_versions.py \
-    --python results/python_results.json \
+    --python results/python_with_cpp_map.json \
     --cpp results/cpp_results.json \
-    --output results/comparison_report.md
+    --output results/samemap_comparison_report.md
 ```
 
 ## 验收标准

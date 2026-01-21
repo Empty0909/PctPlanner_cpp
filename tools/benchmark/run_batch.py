@@ -165,6 +165,8 @@ def main():
                         help=f'每批大小 (默认 {DEFAULT_BATCH_SIZE})')
     parser.add_argument('--limit', type=int, default=None,
                         help='限制总测试用例数量')
+    parser.add_argument('--tomo', type=str, default=None,
+                        help='指定代价地图路径 (.bin 或 .pickle)，覆盖默认路径')
     
     args = parser.parse_args()
     
@@ -178,11 +180,14 @@ def main():
     
     # 设置版本相关参数
     if args.version == 'python':
-        pickle_or_bin = "/home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle"
+        default_tomo = "/home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle"
         lib_path = PYTHON_LIB
     else:
-        pickle_or_bin = "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin"
+        default_tomo = "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin"
         lib_path = CPP_LIB
+    
+    # 使用指定的地图路径，或默认路径
+    pickle_or_bin = args.tomo if args.tomo else default_tomo
     
     # 计算批次
     total_rows = count_csv_rows(args.input)
@@ -192,6 +197,7 @@ def main():
     num_batches = (total_rows + args.batch_size - 1) // args.batch_size
     
     print(f"批量模式: {args.version} 版本", file=sys.stderr)
+    print(f"  代价地图: {pickle_or_bin}", file=sys.stderr)
     print(f"  总用例: {total_rows}", file=sys.stderr)
     print(f"  批大小: {args.batch_size}", file=sys.stderr)
     print(f"  批次数: {num_batches}", file=sys.stderr)

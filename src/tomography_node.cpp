@@ -29,7 +29,7 @@ public:
       : rclcpp::Node("pct_tomography_cpp"),
         output_path_(declare_parameter<std::string>(
             "output_path", "../../rsc/tomogram/scene_map.bin")),
-        resolution_(declare_parameter<double>("resolution", 0.10)),
+        resolution_(declare_parameter<double>("resolution", 0.15)),
         slice_dh_(declare_parameter<double>("slice_dh", 0.5)),
         // ground_h: 地面参考高度，与 Python scene.py 中 ground_h 一致
         // 用于覆盖点云最低高度，确保切片起始高度可控
@@ -38,18 +38,18 @@ public:
         // interval_min: 最小可通行间隙高度
         interval_min_(declare_parameter<double>("interval_min", 0.50)),
         // interval_free: 无惩罚间隙高度阈值
-        interval_free_(declare_parameter<double>("interval_free", 0.65)),
+        interval_free_(declare_parameter<double>("interval_free", 0.60)),
         // 坡度参数：slope_max 用于计算 step_stand
-        slope_max_(declare_parameter<double>("slope_max", 0.36)),
+        slope_max_(declare_parameter<double>("slope_max", 1.0)),
         // 越障参数：step_max 控制可跨越的最大高度差
-        step_max_(declare_parameter<double>("step_max", 0.20)),
-        standable_ratio_(declare_parameter<double>("standable_ratio", 0.20)),
+        step_max_(declare_parameter<double>("step_max", 0.70)),
+        standable_ratio_(declare_parameter<double>("standable_ratio", 0.40)),
         // cost_barrier 与 Python 原版一致
         cost_barrier_(declare_parameter<double>("cost_barrier", 50.0)),
         // 膨胀参数：与 Python 原版一致
-        safe_margin_(declare_parameter<double>("safe_margin", 0.4)),
-        inflation_(declare_parameter<double>("inflation", 0.2)),
-        kernel_size_(declare_parameter<int>("kernel_size", 7)),
+        safe_margin_(declare_parameter<double>("safe_margin", 0.10)),
+        inflation_(declare_parameter<double>("inflation", 0.05)),
+        kernel_size_(declare_parameter<int>("kernel_size", 5)),
         map_frame_(declare_parameter<std::string>("map_frame", "map")),
         precision_mode_(ResolvePrecisionMode(
             declare_parameter<std::string>("precision_mode", "float32"))),
