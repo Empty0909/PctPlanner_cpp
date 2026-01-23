@@ -330,6 +330,80 @@ def read_points_numpy_compat(cloud, field_names=None):
 
 ---
 
+## 🐛 Bug #4: A* 搜索索引顺序不一致 (新增)
+
+#### 📍 定位
+
+- **文件**: `planner_lib/src/a_star/a_star_search.cc`
+- **函数**: `Astar::Search`
+- **行号**: 91-92
+- **影响范围**: 某些特定坐标点导致 C++ 版本搜索失败
+
+#### 🔍 问题描述
+
+在 benchmark 测试中发现，某些用例（如 Case 1552）在 Python 版本成功规划，但 C++ 版本返回 "No valid path found"。
+
+分析发现起终点坐标完全有效、代价值正常，但 C++ 版本无法找到路径。
+
+#### 🧪 根本原因分析
+
+**索引参数语义**：
+
+`pos2idx` 函数（`planner_wrapper.py` / `run_cpp_version.py`）返回：
+
+```python
+idx = [idx[1], idx[0]]  # 交换后返回 [grid_y, grid_x] 但实际是 [world_y_idx, world_x_idx]
+start_idx = (layer, idx[0], idx[1])  # = (layer, 623, 265) for Case 1552
+```
+
+**grid_map_ 布局**：
+
+```cpp
+grid_map_[layer][max_y_][max_x_]  // max_y_ = dim_x = 466, max_x_ = dim_y = 778
+```
+
+**Python 版本 (正确)**：
+
+```cpp
+auto start_node = &grid_map_[start[0]][start[2]][start[1]];
+// = grid_map_[layer][265][623]
+// 需要: 265 < 466 ✓, 623 < 778 ✓
+```
+
+**C++ 版本 (错误)**：
+
+```cpp
+auto start_node = &grid_map_[start[0]][start[1]][start[2]];
+// = grid_map_[layer][623][265]
+// 需要: 623 < 466 ✗  ← 越界！
+```
+
+**结论**：C++ 版本在迁移时将索引顺序改为"看起来合理"的 `[start[1]][start[2]]`，但与 `pos2idx` 的交换逻辑不匹配，导致越界访问。
+
+#### ✅ 修复方案
+
+恢复与 Python 版本一致的索引顺序：
+
+```cpp
+// 修复前
+auto start_node = &grid_map_[start[0]][start[1]][start[2]];
+auto goal_node = &grid_map_[goal[0]][goal[1]][goal[2]];
+
+// 修复后 — 与 Python 版本保持一致
+auto start_node = &grid_map_[start[0]][start[2]][start[1]];
+auto goal_node = &grid_map_[goal[0]][goal[2]][goal[1]];
+```
+
+#### 📊 修复效果
+
+| 指标 | 修复前 | 修复后 |
+|------|--------|--------|
+| 仅 Python 成功用例 | 1 (Case 1552) | 0 |
+| 成功率一致性 | 部分不一致 | 100% 一致 |
+| 平均轨迹误差 | 0.064 m | 0.041 m |
+
+---
+
 ## 📝 经验总结
 
 ### 关键教训
@@ -342,12 +416,15 @@ def read_points_numpy_compat(cloud, field_names=None):
 
 4. **Docker DDS 通信**：FastDDS 的共享内存传输在 Docker 环境下需要特殊配置。
 
+5. **索引交换逻辑的一致性**：当一处代码进行了坐标交换，所有相关的访问代码必须同步调整，否则会导致隐式越界或语义错误。
+
 ### 调试方法论
 
 1. 使用二进制比对工具定位数据层面差异
 2. 逐层排查，从底层 CUDA kernel 到上层渲染逻辑
 3. 对比源代码时注意隐式行为（类型转换、默认参数等）
 4. 验证时同时检查数据和可视化两个维度
+5. **benchmark 对比测试**：通过大量测试用例暴露边界条件问题
 
 ---
 
@@ -358,7 +435,8 @@ def read_points_numpy_compat(cloud, field_names=None):
 - [x] Docker-Host 跨容器通信正常
 - [x] 编译系统规范化
 - [x] 文档更新完成
+- [x] A* 搜索索引一致性修复
 
 **报告编写**: GitHub Copilot  
 **技术审核**: 待签字  
-**日期**: 2026年1月21日
+**日期**: 2026年1月21日（更新）

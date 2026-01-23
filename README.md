@@ -30,14 +30,36 @@ CUDA-based point cloud tomography + global path planner, fully in C++ for ROS2 F
 2) Clone this repo (or copy the prepared folder) and enter it:
 
    ```bash
-   cd ~/PctPlanner_Cpp
+   cd ~/PctPlanner/PctPlanner_Cpp
    ```
 
-3) Build (specify CUDA paths explicitly):
+3) Build using the provided script (recommended for development/testing):
+
+   ```bash
+   ./build.sh            # Release build (default)
+   ./build.sh debug      # Debug build
+   ./build.sh clean      # Clean build directory
+   ```
+
+   Or using colcon for ROS2 integration:
 
    ```bash
    colcon build --packages-select pct_planner_cpp_port \
      --cmake-args -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.8/bin/nvcc -DCUDAToolkit_ROOT=/usr/local/cuda-12.8
+   ```
+
+   **Build directory layout**:
+
+   | Directory | Purpose | Use case |
+   |-----------|---------|----------|
+   | `build/cmake_build/` | CMake direct build output | Development, performance testing |
+   | `build/pct_planner_cpp_port/` | Colcon ROS2 build output | ROS2 node execution |
+
+   **Verify build**:
+
+   ```bash
+   ls build/cmake_build/
+   # Should see: tomography_node, planner_node, planner_direct_node, pcd_publisher, tomography_benchmark
    ```
 
 4) Source the workspace and set runtime libs (once per shell):

@@ -291,49 +291,84 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
       static_cast<int>((points.size() + threads - 1) / threads);
   const int blocks = static_cast<int>((total + threads - 1) / threads);
 
-  float *d_layers_g = nullptr;
-  float *d_layers_c = nullptr;
-  float *d_grad_mag_sq = nullptr;
-  float *d_grad_mag_max = nullptr;
-  float *d_trav_cost = nullptr;
-  float *d_inflated_cost = nullptr;
-  float *d_interval = nullptr;
-  float3 *d_points = nullptr;
-  float *d_score = nullptr;
+  // ========== 优化1: 合并内存分配，减少 cudaMalloc 调用次数 ==========
+  // 计算总内存需求：7 个 float 数组 + 1 个 float3 数组
+  const size_t float_arrays_size = sizeof(float) * total * 7;
+  const size_t points_size = sizeof(float3) * points.size();
 
-  CUDA_CHECK(cudaMalloc(&d_layers_g, sizeof(float) * total));
-  CUDA_CHECK(cudaMalloc(&d_layers_c, sizeof(float) * total));
-  CUDA_CHECK(cudaMalloc(&d_grad_mag_sq, sizeof(float) * total));
-  CUDA_CHECK(cudaMalloc(&d_grad_mag_max, sizeof(float) * total));
-  CUDA_CHECK(cudaMalloc(&d_trav_cost, sizeof(float) * total));
-  CUDA_CHECK(cudaMalloc(&d_inflated_cost, sizeof(float) * total));
-  CUDA_CHECK(cudaMalloc(&d_interval, sizeof(float) * total));
-  CUDA_CHECK(cudaMalloc(&d_points, sizeof(float3) * points.size()));
+  // 预计算 score table 大小
+  int half_inf_k = static_cast<int>((params.safe_margin + params.inflation) /
+                                    params.resolution);
+  int score_size = (2 * half_inf_k + 1) * (2 * half_inf_k + 1);
+  const size_t score_table_size = sizeof(float) * score_size;
 
+  // 单次分配所有 GPU 内存
+  char *d_memory_pool = nullptr;
+  CUDA_CHECK(cudaMalloc(&d_memory_pool,
+                        float_arrays_size + points_size + score_table_size));
+
+  // 设置指针偏移
+  float *d_layers_g = reinterpret_cast<float *>(d_memory_pool);
+  float *d_layers_c = d_layers_g + total;
+  float *d_grad_mag_sq = d_layers_c + total;
+  float *d_grad_mag_max = d_grad_mag_sq + total;
+  float *d_trav_cost = d_grad_mag_max + total;
+  float *d_inflated_cost = d_trav_cost + total;
+  float *d_interval = d_inflated_cost + total;
+  float3 *d_points = reinterpret_cast<float3 *>(d_interval + total);
+  float *d_score = reinterpret_cast<float *>(
+      reinterpret_cast<char *>(d_points) + points_size);
+
+  // ========== 优化2: 预计算 score table 并异步传输 ==========
+  std::vector<float> h_score(score_size, 0.0f);
+  for (int i = 0; i < 2 * half_inf_k + 1; ++i) {
+    for (int j = 0; j < 2 * half_inf_k + 1; ++j) {
+      float dx = params.resolution * static_cast<float>(i - half_inf_k);
+      float dy = params.resolution * static_cast<float>(j - half_inf_k);
+      float dist = std::sqrt(dx * dx + dy * dy);
+      float val =
+          1.0f -
+          (dist - static_cast<float>(params.inflation)) /
+              (static_cast<float>(params.safe_margin + params.resolution));
+      if (val < 0.0f)
+        val = 0.0f;
+      if (val > 1.0f)
+        val = 1.0f;
+      h_score[i * (2 * half_inf_k + 1) + j] = val;
+    }
+  }
+
+  // 转换点云数据
   std::vector<float3> h_points(points.size());
   for (size_t i = 0; i < points.size(); ++i) {
     h_points[i] = make_float3(points[i].x(), points[i].y(), points[i].z());
   }
-  CUDA_CHECK(cudaMemcpy(d_points, h_points.data(),
-                        sizeof(float3) * h_points.size(),
-                        cudaMemcpyHostToDevice));
 
+  // ========== 优化3: 异步传输 H2D 数据 ==========
+  CUDA_CHECK(cudaMemcpyAsync(d_points, h_points.data(),
+                             sizeof(float3) * h_points.size(),
+                             cudaMemcpyHostToDevice, 0));
+  CUDA_CHECK(cudaMemcpyAsync(d_score, h_score.data(),
+                             sizeof(float) * score_size, cudaMemcpyHostToDevice,
+                             0));
+
+  // ========== 优化4: 移除中间同步，让 kernel 流水线执行 ==========
   ClearKernel<<<blocks, threads>>>(d_layers_g, d_layers_c, d_grad_mag_sq,
                                    d_grad_mag_max, d_trav_cost, d_inflated_cost,
                                    d_interval, total);
-  CUDA_CHECK(cudaDeviceSynchronize());
+  // 不同步！
 
   TomographyKernel<<<blocks_points, threads>>>(
       d_points, static_cast<int>(points.size()), d_layers_g, d_layers_c, cx, cy,
       params.resolution, static_cast<int>(dim_x), static_cast<int>(dim_y),
       static_cast<int>(n_slice), slice_h0, static_cast<float>(params.slice_dh));
-  CUDA_CHECK(cudaDeviceSynchronize());
+  // 不同步！
 
   GradIntervalKernel<<<blocks, threads>>>(
       d_layers_g, d_layers_c, d_grad_mag_sq, d_grad_mag_max, d_interval,
       static_cast<int>(dim_x), static_cast<int>(dim_y),
       static_cast<int>(n_slice));
-  CUDA_CHECK(cudaDeviceSynchronize());
+  // 不同步！
 
   int half_trav_k = params.kernel_size / 2;
   float step_stand = 1.2f * static_cast<float>(params.resolution) *
@@ -353,37 +388,15 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
       static_cast<float>(params.interval_free), step_cross * step_cross,
       step_stand * step_stand, standable_th,
       static_cast<float>(params.cost_barrier));
-  CUDA_CHECK(cudaDeviceSynchronize());
-
-  int half_inf_k = static_cast<int>((params.safe_margin + params.inflation) /
-                                    params.resolution);
-  int score_size = (2 * half_inf_k + 1) * (2 * half_inf_k + 1);
-  std::vector<float> h_score(score_size, 0.0f);
-  for (int i = 0; i < 2 * half_inf_k + 1; ++i) {
-    for (int j = 0; j < 2 * half_inf_k + 1; ++j) {
-      float dx = params.resolution * static_cast<float>(i - half_inf_k);
-      float dy = params.resolution * static_cast<float>(j - half_inf_k);
-      float dist = std::sqrt(dx * dx + dy * dy);
-      float val =
-          1.0f -
-          (dist - static_cast<float>(params.inflation)) /
-              (static_cast<float>(params.safe_margin + params.resolution));
-      if (val < 0.0f)
-        val = 0.0f;
-      if (val > 1.0f)
-        val = 1.0f;
-      h_score[i * (2 * half_inf_k + 1) + j] = val;
-    }
-  }
-  CUDA_CHECK(cudaMalloc(&d_score, sizeof(float) * score_size));
-  CUDA_CHECK(cudaMemcpy(d_score, h_score.data(), sizeof(float) * score_size,
-                        cudaMemcpyHostToDevice));
+  // 不同步！
 
   InflationKernel<<<blocks, threads>>>(
       d_trav_cost, d_score, d_inflated_cost, static_cast<int>(dim_x),
       static_cast<int>(dim_y), static_cast<int>(n_slice), half_inf_k);
+  // 仅在最后同步一次
   CUDA_CHECK(cudaDeviceSynchronize());
 
+  // ========== 优化5: 仅传输必要的输出数据 ==========
   out.trav_cost.resize(total);
   out.inflated_cost.resize(total);
   out.interval.resize(total);
@@ -392,30 +405,27 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
   out.elev_g.resize(total);
   out.elev_c.resize(total);
 
-  CUDA_CHECK(cudaMemcpy(out.trav_cost.data(), d_trav_cost,
-                        sizeof(float) * total, cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(out.inflated_cost.data(), d_inflated_cost,
-                        sizeof(float) * total, cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(out.interval.data(), d_interval, sizeof(float) * total,
-                        cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(out.grad_mag_sq.data(), d_grad_mag_sq,
-                        sizeof(float) * total, cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(out.grad_mag_max.data(), d_grad_mag_max,
-                        sizeof(float) * total, cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(out.elev_g.data(), d_layers_g, sizeof(float) * total,
-                        cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(out.elev_c.data(), d_layers_c, sizeof(float) * total,
-                        cudaMemcpyDeviceToHost));
+  // 使用异步传输 D2H
+  CUDA_CHECK(cudaMemcpyAsync(out.inflated_cost.data(), d_inflated_cost,
+                             sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
+  CUDA_CHECK(cudaMemcpyAsync(out.elev_g.data(), d_layers_g,
+                             sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
+  CUDA_CHECK(cudaMemcpyAsync(out.elev_c.data(), d_layers_c,
+                             sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
+  CUDA_CHECK(cudaMemcpyAsync(out.trav_cost.data(), d_trav_cost,
+                             sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
+  CUDA_CHECK(cudaMemcpyAsync(out.interval.data(), d_interval,
+                             sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
+  CUDA_CHECK(cudaMemcpyAsync(out.grad_mag_sq.data(), d_grad_mag_sq,
+                             sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
+  CUDA_CHECK(cudaMemcpyAsync(out.grad_mag_max.data(), d_grad_mag_max,
+                             sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
 
-  cudaFree(d_layers_g);
-  cudaFree(d_layers_c);
-  cudaFree(d_grad_mag_sq);
-  cudaFree(d_grad_mag_max);
-  cudaFree(d_trav_cost);
-  cudaFree(d_inflated_cost);
-  cudaFree(d_interval);
-  cudaFree(d_points);
-  cudaFree(d_score);
+  // 等待所有 D2H 传输完成
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  // 优化6: 单次释放所有内存
+  cudaFree(d_memory_pool);
 
   return true;
 }

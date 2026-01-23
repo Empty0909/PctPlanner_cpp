@@ -102,6 +102,15 @@ target_link_libraries(pcd_publisher
   ${PCL_LIBRARIES}
 )
 
+# Benchmark 可执行文件（不依赖 ROS2 节点）
+add_executable(tomography_benchmark tools/performance/tomography_benchmark.cpp)
+target_include_directories(tomography_benchmark PRIVATE include ${PCL_INCLUDE_DIRS})
+target_link_libraries(tomography_benchmark
+  Eigen3::Eigen
+  tomography_cuda
+  ${PCL_LIBRARIES}
+  CUDA::cudart
+)
 
 target_include_directories(planner_node PRIVATE include)
 target_include_directories(tomography_node PRIVATE include)

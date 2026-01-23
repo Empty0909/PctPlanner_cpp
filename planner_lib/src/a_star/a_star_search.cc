@@ -87,9 +87,12 @@ bool Astar::Search(const Eigen::Vector3i &start, const Eigen::Vector3i &goal) {
     search_result_.clear();
   }
 
-  // idx is (layer, row, col); grid_map_ is indexed as [layer][row][col]
-  auto start_node = &grid_map_[start[0]][start[1]][start[2]];
-  auto goal_node = &grid_map_[goal[0]][goal[1]][goal[2]];
+  // idx is (layer, y_world_idx, x_world_idx) from pos2idx
+  // grid_map_ is indexed as [layer][x_grid][y_grid] where x_grid < max_y_,
+  // y_grid < max_x_ To match Python version: access
+  // grid_map_[layer][start[2]][start[1]]
+  auto start_node = &grid_map_[start[0]][start[2]][start[1]];
+  auto goal_node = &grid_map_[goal[0]][goal[2]][goal[1]];
   start_node->g = 0.0;
 
   if (goal_node->cost > cost_threshold_) {

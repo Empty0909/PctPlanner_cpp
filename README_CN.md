@@ -297,6 +297,31 @@ sudo apt install build-essential cmake -y
 
 ### Step 4: 编译项目
 
+#### 方式一：使用 build.sh 脚本（推荐，用于开发测试）
+
+```bash
+# 4.1 进入项目目录
+cd ~/PctPlanner/PctPlanner_Cpp
+
+# 4.2 使用构建脚本（自动配置 CUDA 路径）
+./build.sh              # Release 构建（默认）
+./build.sh debug        # Debug 构建
+./build.sh clean        # 清理构建目录
+
+# 4.3 验证编译成功
+ls build/cmake_build/
+# 应看到: tomography_node, planner_node, planner_direct_node, pcd_publisher, tomography_benchmark
+```
+
+**构建目录说明**：
+
+| 目录 | 用途 | 推荐场景 |
+|------|------|----------|
+| `build/cmake_build/` | CMake 直接构建输出 | 开发测试、性能测试 |
+| `build/pct_planner_cpp_port/` | Colcon ROS2 构建输出 | ROS2 节点运行 |
+
+#### 方式二：使用 colcon（用于 ROS2 集成）
+
 ```bash
 # 4.1 进入项目目录
 cd ~/PctPlanner/PctPlanner_Cpp
@@ -588,15 +613,23 @@ PctPlanner_Cpp/
 │   ├── tomogram/          # 生成的 Tomogram 文件
 │   └── rviz/              # RViz 配置文件
 │
-├── tools/                  # 辅助工具脚本
-│   └── rsc_compare/       # Python/C++ 版本对比工具
+├── tools/                  # 辅助工具
+│   ├── accuracy/          # 精度一致性测试
+│   ├── performance/       # 性能对比测试
+│   │   ├── benchmark_python.py      # Python 性能测试
+│   │   ├── tomography_benchmark.cpp # C++ 性能测试
+│   │   └── README.md                # 使用说明
+│   └── rsc_compare/       # 资源文件对比工具
 │
-├── build/                  # 🔧 colcon 编译产物（自动生成，已 gitignore）
-├── install/                # 📦 colcon 安装目录（自动生成，已 gitignore）
-└── log/                    # 📝 colcon 编译日志（自动生成，已 gitignore）
+├── build.sh                # 🔧 一键构建脚本
+├── build/                  # 🔧 构建输出目录（已 gitignore）
+│   ├── cmake_build/       # CMake 直接构建（./build.sh）
+│   └── pct_planner_cpp_port/  # Colcon ROS2 构建
+├── install/                # 📦 colcon 安装目录（已 gitignore）
+└── log/                    # 📝 colcon 编译日志（已 gitignore）
 ```
 
-> ⚠️ **注意**：`build/`、`install/`、`log/` 目录由 `colcon build` 自动生成，已添加到 `.gitignore`，不会提交到版本控制。
+> ⚠️ **注意**：`build/`、`install/`、`log/` 目录为编译产物，已添加到 `.gitignore`，不会提交到版本控制。
 
 ---
 
@@ -614,33 +647,3 @@ PctPlanner_Cpp/
 ---
 
 📝 **如有问题，欢迎提交 Issue 或 Pull Request！**
-
-
-对比两个版本代价地图
-测试一：
-cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
-python3 tomogram_compare.py \
-  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
-  --pickle /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle
-
-
-测试二：
-cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
-python3 tomogram_compare.py \
-  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
-  --pickle /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_cpp.pickle
-
-
-测试三：
-cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
-python3 tomogram_compare.py \
-  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_py.bin \
-  --pickle /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle
-
-
-测试四：
-cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare
-python3 tomogram_compare.py \
-  --bin /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_py.bin \
-  --pickle /home/lzy/PctPlanner/PctPlanner_Cpp/tools/rsc_compare/scene_map_from_cpp.pickle
-
