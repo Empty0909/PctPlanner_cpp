@@ -32,7 +32,7 @@ def count_csv_rows(csv_path: str) -> int:
 
 
 def run_batch(version: str, csv_path: str, output_path: str, 
-              skip: int, limit: int, pickle_or_bin: str) -> dict:
+              skip: int, limit: int, pickle_or_bin: str, no_optimize: bool = False) -> dict:
     """运行单个批次"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
@@ -46,6 +46,10 @@ def run_batch(version: str, csv_path: str, output_path: str,
         env = os.environ.copy()
         env['LD_LIBRARY_PATH'] = f"{CPP_LIB}:{CPP_GTSAM}:" + env.get('LD_LIBRARY_PATH', '')
         args = ['--bin', pickle_or_bin]
+    
+    # 添加 no_optimize 参数
+    if no_optimize:
+        args.append('--no-optimize')
     
     # 创建临时 CSV 文件，只包含需要处理的行
     with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp:
@@ -167,6 +171,8 @@ def main():
                         help='限制总测试用例数量')
     parser.add_argument('--tomo', type=str, default=None,
                         help='指定代价地图路径 (.bin 或 .pickle)，覆盖默认路径')
+    parser.add_argument('--no-optimize', action='store_true',
+                        help='关闭轨迹优化器，仅返回 A* 路径')
     
     args = parser.parse_args()
     
@@ -198,6 +204,8 @@ def main():
     
     print(f"批量模式: {args.version} 版本", file=sys.stderr)
     print(f"  代价地图: {pickle_or_bin}", file=sys.stderr)
+    if args.no_optimize:
+        print(f"  [注意] 已关闭轨迹优化器，仅返回 A* 路径", file=sys.stderr)
     print(f"  总用例: {total_rows}", file=sys.stderr)
     print(f"  批大小: {args.batch_size}", file=sys.stderr)
     print(f"  批次数: {num_batches}", file=sys.stderr)
@@ -216,7 +224,7 @@ def main():
         
         batch_result = run_batch(
             args.version, args.input, tmp_output,
-            skip, batch_limit, pickle_or_bin
+            skip, batch_limit, pickle_or_bin, args.no_optimize
         )
         
         if batch_result:

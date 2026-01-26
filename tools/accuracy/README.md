@@ -1,11 +1,11 @@
-# PctPlanner 基准测试工具
+# PctPlanner 精度测试工具
 
 本目录包含用于对比测试 C++ 版本和 Python 版本 PctPlanner 规划器的工具集。
 
 ## 目录结构
 
 ```
-benchmark/
+accuracy/
 ├── README.md                 # 本说明文件
 ├── run_benchmark.sh          # 一键执行测试脚本
 ├── run_batch.py              # 批量运行（避免内存泄漏）
@@ -14,12 +14,11 @@ benchmark/
 ├── run_cpp_version.py        # C++ 版本规划测试
 ├── compare_versions.py       # 结果对比分析
 ├── data/                     # 测试数据目录
-│   ├── test_cases_10k.csv    # CSV 格式测试用例
-│   └── test_cases_10k.json   # JSON 格式测试用例
+│   └── test_cases_valid_ground.csv  # 有效测试用例
 └── results/                  # 测试结果目录
-    ├── python_version_results.json
-    ├── cpp_version_results.json
-    └── version_comparison_report.md
+    ├── python_results_*.json
+    ├── cpp_results_*.json
+    └── comparison_report_*.md
 ```
 
 ## 快速开始
@@ -30,7 +29,7 @@ benchmark/
 ./run_benchmark.sh
 ```
 
-### 限制测试数量（推荐 100-200 个用于快速测试）
+### 限制测试数量
 
 ```bash
 ./run_benchmark.sh --clean --limit 100
@@ -42,134 +41,187 @@ benchmark/
 ./run_benchmark.sh --generate 5000
 ```
 
-### 清理旧结果后测试
+## 核心功能
+
+### 批量测试 (run_batch.py)
+
+推荐使用批量模式运行测试，避免内存泄漏导致 OOM：
 
 ```bash
-./run_benchmark.sh --clean --limit 150
-```
+# C++ 版本测试
+python3 run_batch.py --version cpp \
+    --input data/test_cases_valid_ground.csv \
+    --output results/cpp_results.json \
+    --limit 10000
 
-## 重要说明
-
-由于 C++ 库存在内存泄漏问题，测试脚本采用**批量模式**运行（每 50 个用例一个子进程），避免 OOM。
-
-某些测试用例可能导致程序崩溃（段错误），建议使用 `--limit` 参数限制测试数量。
-
-## 手动执行
-
-### 1. 生成测试用例
-
-```bash
-python3 generate_test_cases.py --num-cases 1000 \
-    --output-csv data/test_cases.csv \
-    --output-json data/test_cases.json
-```
-
-### 2. 运行 Python 版本测试（批量模式）
-
-```bash
-export LD_LIBRARY_PATH=/home/lzy/PctPlanner/PctPlanner_py/planner/lib:/home/lzy/PctPlanner/PctPlanner_py/planner/lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
-python3 run_batch.py --version python --input data/test_cases_valid_ground.csv --output results/python_results.json --limit 10000
-```
-
-### 3. 运行 C++ 版本测试（批量模式）
-
-```bash
-export LD_LIBRARY_PATH=/home/lzy/PctPlanner/PctPlanner_Cpp/planner_lib:/home/lzy/PctPlanner_Cpp_0/planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
-python3 run_batch.py --version cpp --input data/test_cases_valid_ground.csv --output results/cpp_results.json --limit 10000
-```
-
-### 4. 使用自定义代价地图（新功能）
-
-两个版本都支持使用 `--tomo` 参数指定代价地图路径，支持 `.bin` 和 `.pickle` 格式：
-
-```bash
-# Python 版本使用 C++ 生成的二进制代价地图
+# Python 版本测试
 python3 run_batch.py --version python \
-    --input data/test_cases_10k.csv \
+    --input data/test_cases_valid_ground.csv \
+    --output results/python_results.json \
+    --limit 10000
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `--version` | 测试版本：`cpp` 或 `python` |
+| `--input` | 输入测试用例 CSV 文件 |
+| `--output` | 输出结果 JSON 文件 |
+| `--limit` | 限制测试用例数量 |
+| `--batch-size` | 每批处理的用例数（默认 50） |
+| `--tomo` | 自定义代价地图路径（.bin 或 .pickle） |
+| `--no-optimize` | **关闭轨迹优化器，仅返回 A* 路径** |
+
+### 关闭优化器模式
+
+使用 `--no-optimize` 选项可以跳过 GTSAM 轨迹优化，仅对比 A* 路径搜索结果：
+
+```bash
+# C++ 版本 - 仅 A* 路径
+python3 run_batch.py --version cpp \
+    --input data/test_cases_valid_ground.csv \
+    --output results/cpp_astar_results.json \
+    --limit 10000 --no-optimize
+
+# Python 版本 - 仅 A* 路径
+python3 run_batch.py --version python \
+    --input data/test_cases_valid_ground.csv \
+    --output results/python_astar_results.json \
+    --limit 10000 --no-optimize
+
+# 对比 A* 路径结果
+python3 compare_versions.py \
+    --python results/python_astar_results.json \
+    --cpp results/cpp_astar_results.json \
+    --output results/comparison_astar.md
+```
+
+这对于**定位差异来源**非常有用：
+
+- 如果 A* 路径一致但优化后不一致 → 问题在 GTSAM 优化器
+- 如果 A*路径就不一致 → 问题在代价地图数据或 A* 搜索
+
+### 使用自定义代价地图
+
+两个版本都支持使用 `--tomo` 参数指定代价地图路径：
+
+```bash
+# Python 版本使用 C++ 的 bin 格式代价地图
+python3 run_batch.py --version python \
+    --input data/test_cases_valid_ground.csv \
     --output results/python_with_cpp_map.json \
     --tomo /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
     --limit 1000
 
-# C++ 版本使用默认代价地图
+# C++ 版本使用 Python 的 pickle 格式代价地图
 python3 run_batch.py --version cpp \
-    --input data/test_cases_10k.csv \
-    --output results/cpp_results.json \
+    --input data/test_cases_valid_ground.csv \
+    --output results/cpp_with_py_map.json \
+    --tomo /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle \
     --limit 1000
 ```
 
-这样可以验证**相同代价地图下，两个版本规划结果的一致性**。
+这可以验证**相同代价地图下，两个版本规划结果的一致性**。
 
-### 4. 对比分析
+### 结果对比 (compare_versions.py)
 
 ```bash
 python3 compare_versions.py \
     --python results/python_results.json \
     --cpp results/cpp_results.json \
-    --output results/comparison_report_01.md
+    --output results/comparison_report.md
 ```
+
+## 单独运行测试脚本
+
+如果不使用批量模式，可以直接运行单版本测试脚本：
+
+```bash
+# Python 版本
+export LD_LIBRARY_PATH=/home/lzy/PctPlanner/PctPlanner_py/planner/lib:/home/lzy/PctPlanner/PctPlanner_py/planner/lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
+python3 run_python_version.py --pickle /path/to/scene_map.pickle --input test_cases.csv --output results.json
+
+# C++ 版本
+export LD_LIBRARY_PATH=/home/lzy/PctPlanner/PctPlanner_Cpp/planner_lib:/home/lzy/PctPlanner/PctPlanner_Cpp/planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
+python3 run_cpp_version.py --bin /path/to/scene_map.bin --input test_cases.csv --output results.json
+```
+
+**单脚本参数：**
+
+| 参数 | 说明 |
+|------|------|
+| `--pickle` / `--bin` | 代价地图文件路径 |
+| `--input` | 输入测试用例 CSV |
+| `--output` | 输出结果 JSON |
+| `--limit` | 限制用例数量 |
+| `--verbose` | 详细输出 |
+| `--no-optimize` | 关闭轨迹优化器 |
+
+## 生成测试用例
+
+```bash
+python3 generate_test_cases.py \
+    --num-cases 5000 \
+    --output-csv data/test_cases.csv \
+    --output-json data/test_cases.json
+```
+
+## 重要说明
+
+1. **批量模式**：由于库存在内存泄漏，测试脚本默认采用批量模式（每 50 个用例一个子进程）
+2. **代价地图差异**：pickle 和 bin 格式的代价地图可能存在微小差异（fp16 量化误差），建议使用相同地图进行对比
+3. **A* 路径对比**：使用 `--no-optimize` 可以排除优化器影响，单独验证 A* 搜索一致性
 
 ## 验收标准
 
-| 指标 | 目标值 | 当前状态 |
-|------|--------|----------|
-| Python 成功率 | ≥ 60% | ✅ 61.33% |
-| 轨迹误差 | ≤ 0.01 m | ❌ 0.119 m (需优化) |
-
-## 测试结果示例
-
-基于 150 个测试用例：
-
-| 版本 | 成功率 | 平均时间 |
-|------|--------|----------|
-| Python | 61.33% | 185.48 ms |
-| C++ | 62.00% | 183.05 ms |
-
-轨迹误差：
-
-- 平均误差: 0.119 m
-- 最大误差: 3.0 m
-- Z 轴误差: 0.002 m (非常小)
+| 指标 | 目标值 | 说明 |
+|------|--------|------|
+| 成功率 | ≥ 60% | 两版本成功率应接近 |
+| 轨迹误差 | ≤ 0.1 m | 使用相同代价地图时 |
+| A* 路径 | 完全一致 | 使用相同代价地图时 |
 
 ## 测试原理
 
-- **Python 版本**: 使用 `PctPlanner_py/planner/lib/` 下的库 + pickle 格式 tomogram
-- **C++ 版本**: 使用 `PctPlanner_Cpp/planner_lib/` 下的库 + bin 格式 tomogram
+| 版本 | 库路径 | 代价地图格式 |
+|------|--------|--------------|
+| Python | `PctPlanner_py/planner/lib/` | `.pickle` |
+| C++ | `PctPlanner_Cpp/planner_lib/` | `.bin` |
 
 两个版本的库是独立编译的，通过对比测试验证 C++ 移植版本与原 Python 版本的一致性。
 
-## 输出说明
+## 输出格式
 
-### 结果 JSON 格式
+### 结果 JSON
 
 ```json
 {
-  "config": {
-    "lib_path": "库路径",
-    "tomogram_path": "tomogram 文件路径"
-  },
+  "version": "cpp",
+  "lib_path": "库路径",
+  "tomogram_path": "代价地图路径",
   "summary": {
-    "total": 1000,
-    "success": 650,
-    "failed": 350,
-    "success_rate": 0.65,
+    "total": 10000,
+    "success": 6500,
+    "failed": 3500,
+    "success_rate": 65.0,
     "avg_time_ms": 185.5
   },
-  "results": [
-    {
-      "case_id": 1,
+  "results": {
+    "1": {
       "success": true,
       "time_ms": 180.5,
+      "num_points": 325,
       "trajectory": [[x, y, z], ...]
     }
-  ]
+  }
 }
 ```
 
-### 对比报告
+### 对比报告 (Markdown)
 
-生成 Markdown 格式的详细对比报告，包括：
+生成的报告包括：
 
 - 成功率对比
-- 轨迹误差分析（总体、X/Y/Z 轴分别）
+- 轨迹误差分析（总体、X/Y/Z 轴）
 - 性能对比
 - 异常用例列表

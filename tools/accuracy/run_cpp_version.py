@@ -133,9 +133,10 @@ class CppVersionPlanner:
     - C++ 版本的 tomogram bin 文件
     """
     
-    def __init__(self, bin_path: str, use_quintic: bool = True, max_heading_rate: float = 10.0):
+    def __init__(self, bin_path: str, use_quintic: bool = True, max_heading_rate: float = 10.0, no_optimize: bool = False):
         self.use_quintic = use_quintic
         self.max_heading_rate = max_heading_rate
+        self.no_optimize = no_optimize
         
         # 加载 C++ 版本的 tomogram
         print(f"  加载 C++ tomogram: {bin_path}", file=sys.stderr)
@@ -249,6 +250,13 @@ class CppVersionPlanner:
         if len(path) == 0:
             return None
         
+        # 如果关闭优化器，直接返回 A* 路径
+        if self.no_optimize:
+            # path 格式: [layer, x, y] 每行
+            # 转换为世界坐标
+            traj_3d = self._trans_astar_path(path)
+            return traj_3d
+        
         optimizer = (
             self.planner.get_trajectory_optimizer()
             if not self.use_quintic
@@ -278,15 +286,39 @@ class CppVersionPlanner:
         traj_map = np.stack([traj_grid[:, 1], traj_grid[:, 0], traj_grid[:, 2]], axis=1)
         
         return traj_map
+    
+    def _trans_astar_path(self, path):
+        """A* 路径栅格坐标到世界坐标转换"""
+        # path 格式: [layer, x, y] -> 需要转换为 [x, y, z]
+        # 注意：A* 返回的是栅格索引
+        path = np.asarray(path, dtype=np.float64)
+        
+        # 从 slice_heights 获取高度
+        layers = path[:, 0].astype(int)
+        heights = np.array([self.slice_heights[min(l, len(self.slice_heights)-1)] for l in layers])
+        
+        # 构建 traj_3d: [x_grid, y_grid, height/resolution]
+        traj_3d = np.stack([path[:, 1], path[:, 2], heights / self.resolution], axis=1)
+        
+        # 转换到世界坐标
+        offset = np.array([self.dim_y // 2, self.dim_x // 2, 0])
+        center_ = np.array([self.center[1], self.center[0], 0.5])
+        
+        traj_3d = (traj_3d - offset) * self.resolution + center_
+        traj_map = np.stack([traj_3d[:, 1], traj_3d[:, 0], traj_3d[:, 2]], axis=1)
+        
+        return traj_map
 
 
 import gc
 
 
-def run_tests(test_cases: list, bin_path: str, verbose: bool = False) -> dict:
+def run_tests(test_cases: list, bin_path: str, verbose: bool = False, no_optimize: bool = False) -> dict:
     """执行测试 - 增量保存结果以减少内存使用"""
     print("初始化 C++ 版本规划器...", file=sys.stderr)
-    planner = CppVersionPlanner(bin_path)
+    if no_optimize:
+        print("  [注意] 已关闭轨迹优化器，仅返回 A* 路径", file=sys.stderr)
+    planner = CppVersionPlanner(bin_path, no_optimize=no_optimize)
     
     results = {}
     success_count = 0
@@ -349,6 +381,8 @@ def main():
                         help='限制测试用例数量')
     parser.add_argument('--verbose', action='store_true',
                         help='详细输出')
+    parser.add_argument('--no-optimize', action='store_true',
+                        help='关闭轨迹优化器，仅返回 A* 路径')
     
     args = parser.parse_args()
     
@@ -379,7 +413,7 @@ def main():
     # 执行测试
     print(f"\n开始测试...", file=sys.stderr)
     start_time = time.time()
-    results = run_tests(test_cases, args.bin, args.verbose)
+    results = run_tests(test_cases, args.bin, args.verbose, args.no_optimize)
     total_time = time.time() - start_time
     
     # 统计

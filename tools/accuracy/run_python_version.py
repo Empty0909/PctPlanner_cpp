@@ -71,7 +71,8 @@ class PythonVersionPlanner:
     - Python 版本的 tomogram pickle 文件 或 C++ 版本的 bin 文件
     """
     
-    def __init__(self, tomo_path: str):
+    def __init__(self, tomo_path: str, no_optimize: bool = False):
+        self.no_optimize = no_optimize
         self.cfg = Config()
         self.planner = TomogramPlanner(self.cfg)
         
@@ -96,17 +97,19 @@ class PythonVersionPlanner:
         end_pos = np.array([end_x, end_y], dtype=np.float64)
         
         # 与原始 plan.py 一致: z + 0.5
-        traj = self.planner.plan(start_pos, end_pos, start_z + 0.5, end_z + 0.5)
+        traj = self.planner.plan(start_pos, end_pos, start_z + 0.5, end_z + 0.5, no_optimize=self.no_optimize)
         return traj
 
 
 import gc
 
 
-def run_tests(test_cases: list, tomo_path: str, output_path: str, verbose: bool = False) -> dict:
+def run_tests(test_cases: list, tomo_path: str, output_path: str, verbose: bool = False, no_optimize: bool = False) -> dict:
     """执行测试 - 增量保存结果以减少内存使用"""
     print("初始化 Python 版本规划器...", file=sys.stderr)
-    planner = PythonVersionPlanner(tomo_path)
+    if no_optimize:
+        print("  [注意] 已关闭轨迹优化器，仅返回 A* 路径", file=sys.stderr)
+    planner = PythonVersionPlanner(tomo_path, no_optimize=no_optimize)
     
     results = {}
     success_count = 0
@@ -171,6 +174,8 @@ def main():
                         help='限制测试用例数量')
     parser.add_argument('--verbose', action='store_true',
                         help='详细输出')
+    parser.add_argument('--no-optimize', action='store_true',
+                        help='关闭轨迹优化器，仅返回 A* 路径')
     
     args = parser.parse_args()
     
@@ -201,7 +206,7 @@ def main():
     # 执行测试
     print(f"\n开始测试...", file=sys.stderr)
     start_time = time.time()
-    results = run_tests(test_cases, args.tomo_path, args.output, args.verbose)
+    results = run_tests(test_cases, args.tomo_path, args.output, args.verbose, args.no_optimize)
     total_time = time.time() - start_time
     
     # 统计
