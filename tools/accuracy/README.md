@@ -50,15 +50,17 @@ accuracy/
 ```bash
 # C++ 版本测试
 python3 run_batch.py --version cpp \
-    --input data/test_cases_valid_ground.csv \
-    --output results/cpp_results.json \
-    --limit 10000
+    --input data/nyby_underground_test_cases.csv \
+    --output results/nyby_underground_cpp_results.json \
+    --limit 10000 \
+    --tomo /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/nyby_underground_cost_map.bin
 
 # Python 版本测试
 python3 run_batch.py --version python \
-    --input data/test_cases_valid_ground.csv \
-    --output results/python_results.json \
-    --limit 10000
+    --input data/nyby_underground_test_cases.csv \
+    --output results/nyby_underground_python_results.json \
+    --limit 10000 \
+    --tomo /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/nyby_underground_cost_map.pickle
 ```
 
 **参数说明：**
@@ -80,21 +82,23 @@ python3 run_batch.py --version python \
 ```bash
 # C++ 版本 - 仅 A* 路径
 python3 run_batch.py --version cpp \
-    --input data/test_cases_valid_ground.csv \
-    --output results/cpp_astar_results.json \
-    --limit 10000 --no-optimize
+    --input data/nyby_underground_test_cases.csv \
+    --output results/nyby_underground_cpp_astar_results.json \
+    --limit 10000 --no-optimize \
+    --tomo /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/nyby_underground_cost_map.bin
 
 # Python 版本 - 仅 A* 路径
 python3 run_batch.py --version python \
-    --input data/test_cases_valid_ground.csv \
-    --output results/python_astar_results.json \
-    --limit 10000 --no-optimize
+    --input data/nyby_underground_test_cases.csv \
+    --output results/nyby_underground_python_astar_results.json \
+    --limit 10000 --no-optimize \
+    --tomo /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/nyby_underground_cost_map.pickle
 
 # 对比 A* 路径结果
 python3 compare_versions.py \
-    --python results/python_astar_results.json \
-    --cpp results/cpp_astar_results.json \
-    --output results/comparison_astar.md
+    --python results/nyby_underground_python_results.json \
+    --cpp results/nyby_underground_cpp_results.json \
+    --output results/nyby_underground_comparison.md
 ```
 
 这对于**定位差异来源**非常有用：

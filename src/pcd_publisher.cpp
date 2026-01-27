@@ -5,7 +5,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <string>
 
-// 文件作用：读取示例 map.pcd，周期性发布到 /global_points（intensity 置 0）
+// 文件作用：读取 PCD 文件，周期性发布到 /global_points（intensity 置 0）
 class PcdPublisher : public rclcpp::Node {
 public:
   PcdPublisher() : rclcpp::Node("pcd_publisher") {
@@ -14,16 +14,23 @@ public:
     timer_ = this->create_wall_timer(std::chrono::seconds(10),
                                      std::bind(&PcdPublisher::onTimer, this));
 
-    // 通过源文件路径推断包根目录，便于二进制/源码两种运行方式找到 PCD
-    std::string pkg_root = __FILE__;
-    const std::string marker = "/cpp_port/src";
-    auto pos = pkg_root.find(marker);
-    if (pos != std::string::npos) {
-      pkg_root = pkg_root.substr(0, pos);
-    } else {
-      pkg_root = "."; // fallback
+    // 声明 pcd_path 参数，允许命令行指定
+    this->declare_parameter<std::string>("pcd_path", "");
+    std::string pcd_path = this->get_parameter("pcd_path").as_string();
+
+    // 如果未指定参数，使用默认路径
+    if (pcd_path.empty()) {
+      // 通过源文件路径推断包根目录，便于二进制/源码两种运行方式找到 PCD
+      std::string pkg_root = __FILE__;
+      const std::string marker = "/cpp_port/src";
+      auto pos = pkg_root.find(marker);
+      if (pos != std::string::npos) {
+        pkg_root = pkg_root.substr(0, pos);
+      } else {
+        pkg_root = "."; // fallback
+      }
+      pcd_path = pkg_root + "/rsc/pcd/map.pcd";
     }
-    const std::string pcd_path = pkg_root + "/rsc/pcd/map.pcd";
     RCLCPP_INFO(this->get_logger(), "Loading PCD file from: %s",
                 pcd_path.c_str());
 

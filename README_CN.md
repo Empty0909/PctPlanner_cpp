@@ -379,6 +379,7 @@ rviz2 -d $PWD/rsc/rviz/pct_ros.rviz
 # 3. 一键启动全流程
 ros2 launch pct_planner_cpp_port pct_all.launch.py \
   params_file:=$PWD/config/scene_default.yaml \
+  pcd_path:=$PWD/rsc/pcd/map.pcd \
   publish_start_end:=true \
   start_x:=5.63 start_y:=15.0 start_z:=0.0 \
   end_x:=-9.68 end_y:=6.95 end_z:=0.0
@@ -392,15 +393,24 @@ ros2 launch pct_planner_cpp_port pct_all.launch.py \
 
 ### 方式二：分步执行（理解流程）
 
+> ⚠️ **重要**：每个新终端都需要先执行环境配置！
+
+```bash
+# 【每个终端都要先执行】环境配置
+cd ~/PctPlanner/PctPlanner_Cpp
+source install/setup.bash
+export LD_LIBRARY_PATH=$PWD/planner_lib:$PWD/planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
+```
+
 ```bash
 # 终端 1: 发布示例点云
 ros2 run pct_planner_cpp_port pcd_publisher \
-  --ros-args -p pcd_path:=$PWD/rsc/pcd/scene.pcd
+  --ros-args -p pcd_path:=$PWD/rsc/pcd/nyby_ground_pct_v0.pcd
 
 # 终端 2: 运行断层建图
 ros2 run pct_planner_cpp_port tomography_node \
   --ros-args --params-file $PWD/config/scene_default.yaml \
-  -p output_path:=$PWD/rsc/tomogram/scene_map.bin
+  -p output_path:=$PWD/rsc/tomogram/nyby_cost_map.bin
 
 # 终端 3: 运行路径规划
 ros2 run pct_planner_cpp_port planner_node \

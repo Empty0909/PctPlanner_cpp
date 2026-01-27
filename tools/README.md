@@ -51,6 +51,6 @@ python3 compare_versions.py --python results/python_results.json --cpp results/c
 ```bash
 cd tools/rsc_compare
 python3 tomogram_compare.py \
-  --bin ~/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin \
-  --pickle ~/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle
+  --bin ~/PctPlanner/PctPlanner_Cpp/rsc/tomogram/nyby_underground_cost_map.bin \
+  --pickle ~/PctPlanner/PctPlanner_py/rsc/tomogram/nyby_underground_cost_map.pickle
 ```

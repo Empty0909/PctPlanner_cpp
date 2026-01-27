@@ -21,7 +21,7 @@ pct_tomography_cpp:
     # 其他
     map_frame: "map"       # 发布点云/可视化使用的坐标系
     surface_only: true      # true 只发布地面可视化，false 发布全体素（点数大）
-    output_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin"  # tomogram 二进制输出路径
+    output_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/nyby_underground_cost_map.bin"  # tomogram 二进制输出路径
     precision_mode: "float16"   # 可选 float16 / float32
 
 pct_planner_cpp:
@@ -35,4 +35,4 @@ pct_planner_direct_cpp:
     use_quintic: true                    # 同上，离线规划器版本
     max_heading_rate: 10.0               # 同上
     pcd_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/trajectory.pcd"   # 离线规划器输出的 ASCII PCD 路径
-    tomo_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin"  # 离线规划读取的 tomogram 文件
+    tomo_path: "/home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/nyby_cost_map.bin"  # 离线规划读取的 tomogram 文件
