@@ -12,12 +12,10 @@ import pickle
 import argparse
 import numpy as np
 import csv
-import json
 
 # 默认路径
 DEFAULT_PICKLE_PATH = "/home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle"
 DEFAULT_OUTPUT_CSV = "test_cases.csv"
-DEFAULT_OUTPUT_JSON = "test_cases.json"
 DEFAULT_NUM_CASES = 10000
 
 # 可通行代价阈值（小于此值认为可通行）
@@ -210,21 +208,12 @@ def save_to_csv(test_cases: list, output_path: str):
     print(f"已保存到 {output_path}")
 
 
-def save_to_json(test_cases: list, output_path: str):
-    """保存为 JSON 格式"""
-    with open(output_path, 'w') as f:
-        json.dump(test_cases, f, indent=2)
-    print(f"已保存到 {output_path}")
-
-
 def main():
     parser = argparse.ArgumentParser(description='生成 PctPlanner 测试用例')
     parser.add_argument('--pickle', type=str, default=DEFAULT_PICKLE_PATH,
                         help='Python tomogram pickle 文件路径')
     parser.add_argument('--output-csv', type=str, default=DEFAULT_OUTPUT_CSV,
                         help='输出 CSV 文件路径')
-    parser.add_argument('--output-json', type=str, default=DEFAULT_OUTPUT_JSON,
-                        help='输出 JSON 文件路径')
     parser.add_argument('--num-cases', type=int, default=DEFAULT_NUM_CASES,
                         help='生成的测试用例数量')
     parser.add_argument('--min-distance', type=float, default=2.0,
@@ -240,8 +229,6 @@ def main():
     # 如果输出路径是相对路径，则相对于脚本目录
     if not os.path.isabs(args.output_csv):
         args.output_csv = os.path.join(script_dir, args.output_csv)
-    if not os.path.isabs(args.output_json):
-        args.output_json = os.path.join(script_dir, args.output_json)
     
     print("=" * 60)
     print("PctPlanner 测试用例生成器")
@@ -262,7 +249,6 @@ def main():
     # 保存
     print("\n保存测试用例...")
     save_to_csv(test_cases, args.output_csv)
-    save_to_json(test_cases, args.output_json)
     
     print("\n完成!")
 

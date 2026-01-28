@@ -7,38 +7,52 @@
 ```
 accuracy/
 ├── README.md                 # 本说明文件
-├── run_benchmark.sh          # 一键执行测试脚本
 ├── run_batch.py              # 批量运行（避免内存泄漏）
 ├── generate_test_cases.py    # 测试用例生成器
-├── run_python_version.py     # Python 版本规划测试
-├── run_cpp_version.py        # C++ 版本规划测试
+├── run_python_version.py     # Python 版本规划测试（被 run_batch.py 调用）
+├── run_cpp_version.py        # C++ 版本规划测试（被 run_batch.py 调用）
 ├── compare_versions.py       # 结果对比分析
 ├── data/                     # 测试数据目录
-│   └── test_cases_valid_ground.csv  # 有效测试用例
+│   └── *.csv                 # 测试用例文件
 └── results/                  # 测试结果目录
-    ├── python_results_*.json
-    ├── cpp_results_*.json
-    └── comparison_report_*.md
+    ├── *_results.json
+    └── *_comparison.md
 ```
 
 ## 快速开始
 
-### 一键执行完整测试
+### 1. 生成测试用例
 
 ```bash
-./run_benchmark.sh
+python3 generate_test_cases.py \
+    --pickle /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle \
+    --num-cases 10000 \
+    --output-csv data/test_cases.csv
 ```
 
-### 限制测试数量
+### 2. 运行批量测试
 
 ```bash
-./run_benchmark.sh --clean --limit 100
+# C++ 版本测试
+python3 run_batch.py --version cpp \
+    --input data/test_cases.csv \
+    --output results/cpp_results.json \
+    --tomo /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/scene_map.bin
+
+# Python 版本测试
+python3 run_batch.py --version python \
+    --input data/test_cases.csv \
+    --output results/python_results.json \
+    --tomo /home/lzy/PctPlanner/PctPlanner_py/rsc/tomogram/scene_map.pickle
 ```
 
-### 重新生成测试用例
+### 3. 对比结果
 
 ```bash
-./run_benchmark.sh --generate 5000
+python3 compare_versions.py \
+    --python results/python_results.json \
+    --cpp results/cpp_results.json \
+    --output results/comparison.md
 ```
 
 ## 核心功能
@@ -137,39 +151,24 @@ python3 compare_versions.py \
     --output results/comparison_report.md
 ```
 
-## 单独运行测试脚本
-
-如果不使用批量模式，可以直接运行单版本测试脚本：
-
-```bash
-# Python 版本
-export LD_LIBRARY_PATH=/home/lzy/PctPlanner/PctPlanner_py/planner/lib:/home/lzy/PctPlanner/PctPlanner_py/planner/lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
-python3 run_python_version.py --pickle /path/to/scene_map.pickle --input test_cases.csv --output results.json
-
-# C++ 版本
-export LD_LIBRARY_PATH=/home/lzy/PctPlanner/PctPlanner_Cpp/planner_lib:/home/lzy/PctPlanner/PctPlanner_Cpp/planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
-python3 run_cpp_version.py --bin /path/to/scene_map.bin --input test_cases.csv --output results.json
-```
-
-**单脚本参数：**
-
-| 参数 | 说明 |
-|------|------|
-| `--pickle` / `--bin` | 代价地图文件路径 |
-| `--input` | 输入测试用例 CSV |
-| `--output` | 输出结果 JSON |
-| `--limit` | 限制用例数量 |
-| `--verbose` | 详细输出 |
-| `--no-optimize` | 关闭轨迹优化器 |
-
 ## 生成测试用例
 
 ```bash
 python3 generate_test_cases.py \
-    --num-cases 5000 \
-    --output-csv data/test_cases.csv \
-    --output-json data/test_cases.json
+    --pickle /path/to/scene_map.pickle \
+    --num-cases 10000 \
+    --output-csv data/test_cases.csv
 ```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `--pickle` | Python 版本代价地图路径 |
+| `--num-cases` | 生成的测试用例数量 |
+| `--output-csv` | 输出 CSV 文件路径 |
+| `--min-distance` | 起终点最小距离（默认 2m） |
+| `--max-distance` | 起终点最大距离（默认 30m） |
 
 ## 重要说明
 
