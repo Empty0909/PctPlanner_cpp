@@ -1,0 +1,78 @@
+{
+  "model_file": "/Users/zhangjinchuan/Desktop/test_video/phd_dom_map/underground/phd_dom_sscb1_loc_5cm_v0.pcd",
+  "nodes": [
+    {
+      "id": 0,
+      "label": "post_door",
+      "position": [
+        -10.002032279968262,
+        -0.8152790069580078,
+        -0.5998263955116272
+      ],
+      "point_index": 4453282,
+      "timestamp": "2026-01-28T21:17:21.147083"
+    },
+    {
+      "id": 1,
+      "label": "stairs_path-1",
+      "position": [
+        -18.867084503173828,
+        -3.919853448867798,
+        1.3186947107315063
+      ],
+      "point_index": 4622265,
+      "timestamp": "2026-01-28T21:17:21.147179"
+    },
+    {
+      "id": 2,
+      "label": "stairs_path-2",
+      "position": [
+        -24.29290199279785,
+        6.848115921020508,
+        5.09792947769165
+      ],
+      "point_index": 4185210,
+      "timestamp": "2026-01-28T21:17:21.147225"
+    },
+    {
+      "id": 3,
+      "label": "stairs_end",
+      "position": [
+        -36.048526763916016,
+        1.9182860851287842,
+        4.620646953582764
+      ],
+      "point_index": 2422867,
+      "timestamp": "2026-01-28T21:17:21.147261"
+    },
+    {
+      "id": 4,
+      "label": "stairs_start",
+      "position": [
+        -12.813424110412598,
+        -1.584875226020813,
+        -0.609158456325531
+      ],
+      "point_index": 4461266,
+      "timestamp": "2026-01-28T21:17:21.147295"
+    }
+  ],
+  "edges": [
+    {
+      "source": 0,
+      "target": 4
+    },
+    {
+      "source": 4,
+      "target": 1
+    },
+    {
+      "source": 1,
+      "target": 2
+    },
+    {
+      "source": 2,
+      "target": 3
+    }
+  ]
+}

@@ -28,6 +28,18 @@ find_package(Eigen3 REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 find_package(PCL REQUIRED COMPONENTS io)
 find_package(pcl_conversions REQUIRED)
+find_package(nlohmann_json QUIET)
+
+# 如果系统没有 nlohmann_json，使用 FetchContent 获取
+if(NOT nlohmann_json_FOUND)
+  include(FetchContent)
+  FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+  )
+  FetchContent_MakeAvailable(nlohmann_json)
+endif()
 
 # 如果未显式指定 GTSAM_DIR，则尝试使用项目内置的安装路径
 if(NOT GTSAM_DIR)
@@ -67,6 +79,12 @@ add_library(tomography_cuda STATIC src/tomography_cuda.cu)
 target_include_directories(tomography_cuda PUBLIC include ${EIGEN3_INCLUDE_DIR})
 target_link_libraries(tomography_cuda CUDA::cudart)
 
+# 语义地图读写库
+add_library(semantic_io STATIC src/semantic_io.cpp)
+target_include_directories(semantic_io PUBLIC include ${EIGEN3_INCLUDE_DIR})
+target_link_libraries(semantic_io nlohmann_json::nlohmann_json)
+ament_target_dependencies(semantic_io nav_msgs geometry_msgs)
+
 add_executable(tomography_node src/tomography_node.cpp)
 ament_target_dependencies(tomography_node rclcpp sensor_msgs std_msgs)
 target_link_libraries(tomography_node Eigen3::Eigen tomography_cuda)
@@ -95,6 +113,20 @@ target_link_libraries(planner_direct_node
   gtsam
 )
 
+# 语义地图批量规划节点（与 Python plan_nyby.py 对齐）
+add_executable(planner_semantic_node src/planner_semantic_node.cpp)
+ament_target_dependencies(planner_semantic_node rclcpp std_msgs geometry_msgs nav_msgs)
+target_link_libraries(planner_semantic_node
+  Eigen3::Eigen
+  semantic_io
+  ${LIB_DIR}/libele_planner_lib.so
+  ${LIB_DIR}/liba_star_search.so
+  ${LIB_DIR}/libgpmp_optimizer.so
+  ${LIB_DIR}/libmap_manager.so
+  ${LIB_DIR}/libcommon_smoothing.so
+  gtsam
+)
+
 add_executable(pcd_publisher src/pcd_publisher.cpp)
 ament_target_dependencies(pcd_publisher rclcpp sensor_msgs pcl_conversions)
 target_link_libraries(pcd_publisher
@@ -115,6 +147,7 @@ target_link_libraries(tomography_benchmark
 target_include_directories(planner_node PRIVATE include)
 target_include_directories(tomography_node PRIVATE include)
 target_include_directories(planner_direct_node PRIVATE include)
+target_include_directories(planner_semantic_node PRIVATE include)
 target_include_directories(pcd_publisher PRIVATE include)
 
 
@@ -122,6 +155,7 @@ install(TARGETS
   tomography_node
   planner_node
   planner_direct_node
+  planner_semantic_node
   pcd_publisher
   DESTINATION lib/${PROJECT_NAME}
 )

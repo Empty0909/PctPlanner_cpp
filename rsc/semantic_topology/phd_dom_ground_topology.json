@@ -1,0 +1,82 @@
+{
+  "model_file": "/Users/zhangjinchuan/Desktop/test_video/phd_dom_map/ground/phd_dom_ground_pct_v0.pcd",
+  "nodes": [
+    {
+      "id": 0,
+      "label": "stairs_end",
+      "position": [
+        -16.04153060913086,
+        48.25481033325195,
+        -0.7226000428199768
+      ],
+      "point_index": 13334724,
+      "timestamp": "2026-01-28T21:24:53.372982"
+    },
+    {
+      "id": 1,
+      "label": "turning-1",
+      "position": [
+        -41.6705322265625,
+        43.45380783081055,
+        0.7524000406265259
+      ],
+      "point_index": 4177304,
+      "timestamp": "2026-01-28T21:24:53.373069"
+    },
+    {
+      "id": 2,
+      "label": "path-1",
+      "position": [
+        -109.00353240966797,
+        27.83580780029297,
+        -0.803600013256073
+      ],
+      "point_index": 11928577,
+      "timestamp": "2026-01-28T21:24:53.373116"
+    },
+    {
+      "id": 3,
+      "label": "path-2",
+      "position": [
+        -96.65753173828125,
+        34.1908073425293,
+        -0.7476000189781189
+      ],
+      "point_index": 12269774,
+      "timestamp": "2026-01-28T21:24:53.373152"
+    },
+    {
+      "id": 4,
+      "label": "b8f1_door",
+      "position": [
+        -98.29253387451172,
+        38.63480758666992,
+        -0.26360002160072327
+      ],
+      "point_index": 12111984,
+      "timestamp": "2026-01-28T21:24:53.373186"
+    }
+  ],
+  "edges": [
+    {
+      "source": 0,
+      "target": 1
+    },
+    {
+      "source": 1,
+      "target": 3
+    },
+    {
+      "source": 3,
+      "target": 4
+    },
+    {
+      "source": 4,
+      "target": 3
+    },
+    {
+      "source": 2,
+      "target": 3
+    }
+  ]
+}

@@ -58,6 +58,7 @@ __device__ inline int getIdxRelative(int idx, int dx, int dy, int dim_x,
 }
 
 __global__ void ClearKernel(float *layers_g, float *layers_c,
+                            float *filtered_layers_g, float *filtered_layers_c,
                             float *grad_mag_sq, float *grad_mag_max,
                             float *trav_cost, float *inflated_cost,
                             float *interval, int total) {
@@ -66,11 +67,94 @@ __global__ void ClearKernel(float *layers_g, float *layers_c,
     return;
   layers_g[idx] = -1e6f;
   layers_c[idx] = 1e6f;
+  filtered_layers_g[idx] = -1e6f;
+  filtered_layers_c[idx] = 1e6f;
   grad_mag_sq[idx] = 0.0f;
   grad_mag_max[idx] = 0.0f;
   trav_cost[idx] = 0.0f;
   inflated_cost[idx] = 0.0f;
   interval[idx] = 0.0f;
+}
+
+// FilterKernel: 与 Python ziquan-explore 分支的 filterKernel 对齐
+// 对缺失的地面/顶部高度进行邻域插值：
+// - 如果 current_g < -1e5，用邻域 8 个格子中有效值的最小值填充
+// - 如果 current_c > 1e5，用邻域 8 个格子中有效值的最大值填充
+__global__ void FilterKernel(const float *layers_g, const float *layers_c,
+                             float *filtered_layers_g, float *filtered_layers_c,
+                             int dim_x, int dim_y, int n_slice) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  int layer_size = dim_x * dim_y;
+  int total = layer_size * n_slice;
+  if (idx >= total)
+    return;
+
+  int s_idx = idx / layer_size;
+  int plane_idx = idx - s_idx * layer_size;
+  int r = plane_idx / dim_y; // row (x)
+  int c = plane_idx % dim_y; // col (y)
+
+  float current_g = layers_g[idx];
+  float current_c = layers_c[idx];
+
+  // 边界处理：直接复制原值
+  if (c == 0 || c == dim_y - 1 || r == 0 || r == dim_x - 1) {
+    filtered_layers_g[idx] = current_g;
+    filtered_layers_c[idx] = current_c;
+    return;
+  }
+
+  // 邻域 8 个格子的偏移（与 Python 一致）
+  int neighbor_offsets[8] = {
+      dim_y + 1,  // (r+1, c+1)
+      dim_y,      // (r+1, c)
+      dim_y - 1,  // (r+1, c-1)
+      -1,         // (r, c-1)
+      -dim_y - 1, // (r-1, c-1)
+      -dim_y,     // (r-1, c)
+      -dim_y + 1, // (r-1, c+1)
+      1           // (r, c+1)
+  };
+
+  // 处理地面高度：如果当前值无效，用邻域最小有效值填充
+  if (current_g < -1e5f) {
+    int valid_g_count = 0;
+    float min_g = 1e6f;
+    for (int i = 0; i < 8; ++i) {
+      float neighbor_g = layers_g[idx + neighbor_offsets[i]];
+      if (neighbor_g > -1e5f) {
+        valid_g_count++;
+        if (min_g > neighbor_g)
+          min_g = neighbor_g;
+      }
+    }
+    if (valid_g_count >= 4)
+      filtered_layers_g[idx] = min_g;
+    else
+      filtered_layers_g[idx] = current_g;
+  } else {
+    filtered_layers_g[idx] = current_g;
+  }
+
+  // 处理顶部高度：如果当前值有效，用邻域最大有效值填充
+  if (current_c < 1e5f) {
+    int valid_c_count = 0;
+    float max_c = -1e5f;
+    for (int i = 0; i < 8; ++i) {
+      float neighbor_c = layers_c[idx + neighbor_offsets[i]];
+      if (neighbor_c < 1e5f) {
+        valid_c_count++;
+        if (max_c < neighbor_c)
+          max_c = neighbor_c;
+      }
+    }
+    if (valid_c_count >= 4)
+      filtered_layers_c[idx] = max_c;
+    else
+      filtered_layers_c[idx] = current_c;
+  } else {
+    filtered_layers_c[idx] = current_c;
+  }
 }
 
 __global__ void TomographyKernel(const float3 *points, int num_points,
@@ -292,8 +376,9 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
   const int blocks = static_cast<int>((total + threads - 1) / threads);
 
   // ========== 优化1: 合并内存分配，减少 cudaMalloc 调用次数 ==========
-  // 计算总内存需求：7 个 float 数组 + 1 个 float3 数组
-  const size_t float_arrays_size = sizeof(float) * total * 7;
+  // 计算总内存需求：9 个 float 数组（新增 filtered_layers_g/c）+ 1 个 float3
+  // 数组
+  const size_t float_arrays_size = sizeof(float) * total * 9;
   const size_t points_size = sizeof(float3) * points.size();
 
   // 预计算 score table 大小
@@ -307,10 +392,12 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
   CUDA_CHECK(cudaMalloc(&d_memory_pool,
                         float_arrays_size + points_size + score_table_size));
 
-  // 设置指针偏移
+  // 设置指针偏移（新增 filtered_layers_g 和 filtered_layers_c）
   float *d_layers_g = reinterpret_cast<float *>(d_memory_pool);
   float *d_layers_c = d_layers_g + total;
-  float *d_grad_mag_sq = d_layers_c + total;
+  float *d_filtered_layers_g = d_layers_c + total;
+  float *d_filtered_layers_c = d_filtered_layers_g + total;
+  float *d_grad_mag_sq = d_filtered_layers_c + total;
   float *d_grad_mag_max = d_grad_mag_sq + total;
   float *d_trav_cost = d_grad_mag_max + total;
   float *d_inflated_cost = d_trav_cost + total;
@@ -353,7 +440,8 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
                              0));
 
   // ========== 优化4: 移除中间同步，让 kernel 流水线执行 ==========
-  ClearKernel<<<blocks, threads>>>(d_layers_g, d_layers_c, d_grad_mag_sq,
+  ClearKernel<<<blocks, threads>>>(d_layers_g, d_layers_c, d_filtered_layers_g,
+                                   d_filtered_layers_c, d_grad_mag_sq,
                                    d_grad_mag_max, d_trav_cost, d_inflated_cost,
                                    d_interval, total);
   // 不同步！
@@ -364,9 +452,18 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
       static_cast<int>(n_slice), slice_h0, static_cast<float>(params.slice_dh));
   // 不同步！
 
-  GradIntervalKernel<<<blocks, threads>>>(
-      d_layers_g, d_layers_c, d_grad_mag_sq, d_grad_mag_max, d_interval,
+  // ========== 新增: FilterKernel 对缺失值进行邻域插值 ==========
+  // 与 Python ziquan-explore 分支对齐
+  FilterKernel<<<blocks, threads>>>(
+      d_layers_g, d_layers_c, d_filtered_layers_g, d_filtered_layers_c,
       static_cast<int>(dim_x), static_cast<int>(dim_y),
+      static_cast<int>(n_slice));
+  // 不同步！
+
+  // 使用 filtered_layers 计算梯度和间隙（与 Python 一致）
+  GradIntervalKernel<<<blocks, threads>>>(
+      d_filtered_layers_g, d_filtered_layers_c, d_grad_mag_sq, d_grad_mag_max,
+      d_interval, static_cast<int>(dim_x), static_cast<int>(dim_y),
       static_cast<int>(n_slice));
   // 不同步！
 
@@ -406,11 +503,12 @@ bool RunTomographyCuda(const std::vector<Eigen::Vector3f> &points,
   out.elev_c.resize(total);
 
   // 使用异步传输 D2H
+  // 注意：输出 filtered_layers 而非原始 layers（与 Python ziquan-explore 一致）
   CUDA_CHECK(cudaMemcpyAsync(out.inflated_cost.data(), d_inflated_cost,
                              sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
-  CUDA_CHECK(cudaMemcpyAsync(out.elev_g.data(), d_layers_g,
+  CUDA_CHECK(cudaMemcpyAsync(out.elev_g.data(), d_filtered_layers_g,
                              sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
-  CUDA_CHECK(cudaMemcpyAsync(out.elev_c.data(), d_layers_c,
+  CUDA_CHECK(cudaMemcpyAsync(out.elev_c.data(), d_filtered_layers_c,
                              sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
   CUDA_CHECK(cudaMemcpyAsync(out.trav_cost.data(), d_trav_cost,
                              sizeof(float) * total, cudaMemcpyDeviceToHost, 0));
