@@ -1,11 +1,15 @@
 # 🚀 PctPlanner C++ — ROS2 Foxy 版
 
+
 > **Point Cloud Tomography (PCT) 三维路径规划器**  
 > 输入三维点云 → 生成多层可通行代价地图 → 规划三维无碰撞路径
 
+
 ---
 
+
 ## 📖 目录
+
 
 1. [项目简介](#-项目简介)
 2. [核心原理](#-核心原理)
@@ -20,23 +24,32 @@
 11. [项目结构](#-项目结构)
 12. [版权与致谢](#-版权与致谢)
 
+
 ---
+
 
 ## 🎯 项目简介
 
+
 **PctPlanner** 是一款专为**复杂三维结构化环境**（如多层停车场、立体仓库、多楼层建筑等）设计的全局路径规划器。
+
 
 ### 核心问题
 
+
 传统二维规划算法（如 ROS Navigation Stack）只能处理平面地图，面对**多层结构**时束手无策。机器人需要能够：
+
 
 - 在坡道之间穿梭
 - 跨楼层导航
 - 处理复杂的三维障碍物
 
+
 ### 解决方案
 
+
 PctPlanner 采用 **Point Cloud Tomography（点云断层扫描）** 技术，将三维点云转化为**多层可通行性地图**，实现真正的三维路径规划。
+
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -57,21 +70,15 @@ PctPlanner 采用 **Point Cloud Tomography（点云断层扫描）** 技术，�
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+
 ---
+
 
 ## 🧠 核心原理
 
-### 什么是 Point Cloud Tomography？
-
-灵感来源于医学 CT（计算机断层扫描）：
-
-| 医学 CT | Point Cloud Tomography |
-|---------|------------------------|
-| X 射线穿透人体 | 点云切片分析 |
-| 生成人体横截面图像 | 生成每层可通行性信息 |
-| 用于诊断病变 | 用于判断机器人能否通过 |
 
 ### 算法流程
+
 
 ```
 Step 1: 点云栅格化
@@ -103,9 +110,12 @@ Step 5: 多层融合
 生成连通的多层代价地图 (Tomogram)
 ```
 
+
 ### 可通行性判定标准
 
+
 一个格子被判定为**可通行**需要满足：
+
 
 | 指标 | 阈值（默认值） | 含义 |
 |------|---------------|------|
@@ -113,9 +123,12 @@ Step 5: 多层融合
 | `slope_max` | ≤ 0.36 rad | 最大坡度 |
 | `step_max` | ≤ 0.20m | 相邻格子高度差 |
 
+
 ---
 
+
 ## 🏗 系统架构
+
 
 ```
                           ROS2 Topics
@@ -150,7 +163,9 @@ Step 5: 多层融合
             (ROS Path)    (可视化点云)     (RViz Marker)
 ```
 
+
 ### 节点说明
+
 
 | 节点名 | 功能 | 输入 | 输出 |
 |--------|------|------|------|
@@ -160,11 +175,15 @@ Step 5: 多层融合
 | `planner_direct_node` | 离线路径规划 | `.bin` 文件, 起终点 | `/pct_path2`, PCD |
 | `planner_semantic_node` | 语义地图批量规划 | `.bin` 文件, 语义 JSON | `/pct_path3`, 更新后的 JSON |
 
+
 ---
+
 
 ## ✨ 功能特性
 
+
 ### 核心功能
+
 
 - ✅ **CUDA 加速断层建图** — 百万级点云实时处理（含 FilterKernel 邻域滤波）
 - ✅ **语义地图批量规划** — 自动为语义拓扑图中所有边生成轨迹
@@ -173,24 +192,32 @@ Step 5: 多层融合
 - ✅ **GTSAM 轨迹优化** — 平滑、自然的机器人路径
 - ✅ **ROS2 原生支持** — 完美集成 ROS2 生态
 
+
 ### 输出格式
+
 
 - 📍 **ROS Path** — 标准 `nav_msgs/Path`，可直接用于导航控制
 - 📁 **PCD 文件** — 可视化轨迹点云
 - 🗺️ **Tomogram 二进制** — 可保存/加载的代价地图
 
+
 ### 精度模式
+
 
 | 模式 | 存储 | 精度 | 推荐场景 |
 |------|------|------|----------|
 | `float16` | 文件小 | 厘米级 | 日常使用 |
 | `float32` | 文件大 | 毫米级 | 高精度需求 |
 
+
 ---
+
 
 ## 💻 环境要求
 
+
 ### 硬件要求
+
 
 | 组件 | 最低配置 | 推荐配置 |
 |------|---------|---------|
@@ -200,7 +227,9 @@ Step 5: 多层融合
 | 显存 | 4 GB | 8 GB 以上 |
 | 硬盘 | 20 GB 可用空间 | SSD 推荐 |
 
+
 ### 软件要求
+
 
 | 软件 | 版本 | 必须 |
 |------|------|------|
@@ -210,7 +239,9 @@ Step 5: 多层融合
 | CMake | ≥ 3.16 | ✅ |
 | GCC | 9.x (Ubuntu 20.04 默认) | ✅ |
 
+
 ### 依赖库
+
 
 | 库 | 说明 | 安装方式 |
 |----|------|---------|
@@ -219,13 +250,18 @@ Step 5: 多层融合
 | GTSAM 4.1.1 | 轨迹优化 | **已内置** |
 | pcl_conversions | ROS-PCL 转换 | apt |
 
+
 ---
+
 
 ## 📦 安装指南（零基础版）
 
+
 > ⚠️ 请严格按照顺序执行每一步，遇到问题先查看 [FAQ](#-常见问题-faq)
 
+
 ### Step 1: 安装 ROS2 Foxy
+
 
 ```bash
 # 1.1 设置语言环境
@@ -259,7 +295,9 @@ ros2 --version
 # 应显示: ros2 0.9.x
 ```
 
+
 ### Step 2: 安装 CUDA Toolkit
+
 
 ```bash
 # 2.1 检查显卡驱动
@@ -294,7 +332,9 @@ nvcc --version
 #         Cuda compilation tools, release 12.8, V12.8.xxx
 ```
 
+
 ### Step 3: 安装依赖库
+
 
 ```bash
 # 3.1 PCL 和 Eigen
@@ -313,9 +353,12 @@ sudo apt install python3-colcon-common-extensions -y
 sudo apt install build-essential cmake -y
 ```
 
+
 ### Step 4: 编译项目
 
+
 #### 方式一：使用 build.sh 脚本（推荐，用于开发测试）
+
 
 ```bash
 # 4.1 进入项目目录
@@ -333,14 +376,18 @@ ls build/cmake_build/
 # 应看到: tomography_node, planner_node, planner_direct_node, pcd_publisher, tomography_benchmark
 ```
 
+
 **构建目录说明**：
+
 
 | 目录 | 用途 | 推荐场景 |
 |------|------|----------|
 | `build/cmake_build/` | CMake 直接构建输出 | 开发测试、性能测试 |
 | `build/pct_planner_cpp_port/` | Colcon ROS2 构建输出 | ROS2 节点运行 |
 
+
 #### 方式二：使用 colcon（用于 ROS2 集成）
+
 
 ```bash
 # 4.1 进入项目目录
@@ -363,9 +410,12 @@ ls install/pct_planner_cpp_port/lib/pct_planner_cpp_port/
 # 应看到: tomography_node, planner_node, planner_direct_node, pcd_publisher
 ```
 
+
 ### Step 5: 配置环境
 
+
 在**每个新终端**中运行（或添加到 `~/.bashrc`）：
+
 
 ```bash
 # 5.1 加载 ROS2 工作空间
@@ -376,7 +426,9 @@ source ~/PctPlanner/PctPlanner_Cpp/install/setup.bash
 export LD_LIBRARY_PATH=$HOME/PctPlanner/PctPlanner_Cpp/planner_lib:$HOME/PctPlanner/PctPlanner_Cpp/planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
 ```
 
+
 **一键配置脚本**（推荐添加到 `~/.bashrc`）:
+
 
 ```bash
 # PctPlanner 环境配置
@@ -384,13 +436,18 @@ alias pct_env='source ~/PctPlanner/PctPlanner_Cpp/install/setup.bash && export L
 PctPlanner_Cpp/planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH && echo "PctPlanner 环境已加载 ✓"'
 ```
 
+
 之后只需输入 `pct_env` 即可完成环境配置。
+
 
 ---
 
+
 ## 🚀 快速上手
 
+
 ### 方式一：一键启动（推荐新手）
+
 
 ```bash
 # 1. 打开终端，配置环境
@@ -412,15 +469,20 @@ ros2 launch pct_planner_cpp_port pct_all.launch.py \
   end_x:=-9.68 end_y:=6.95 end_z:=0.0
 ```
 
+
 **预期效果**：
+
 
 1. RViz 显示彩色点云（`/global_points`）
 2. 几秒后显示代价地图（`/tomogram`）
 3. 显示规划路径（红色线条 `/pct_path`）
 
+
 ### 方式二：分步执行（理解流程）
 
+
 > ⚠️ **重要**：每个新终端都需要先执行环境配置！
+
 
 ```bash
 # 【每个终端都要先执行】环境配置
@@ -428,6 +490,7 @@ cd ~/PctPlanner/PctPlanner_Cpp
 source install/setup.bash
 export LD_LIBRARY_PATH=$PWD/planner_lib:$PWD/planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
 ```
+
 
 ```bash
 # 终端 1: 发布示例点云
@@ -451,9 +514,12 @@ ros2 topic pub --once /start_pos geometry_msgs/msg/Point "{x: 5.63, y: 15.0, z: 
 ros2 topic pub --once /end_pos geometry_msgs/msg/Point "{x: -9.68, y: 6.95, z: 0.0}"
 ```
 
+
 ### 方式三：离线规划（使用已有 Tomogram）
 
+
 如果已经有保存好的 `.bin` 文件，可以跳过建图直接规划：
+
 
 ```bash
 ros2 launch pct_planner_cpp_port pct_all.launch.py \
@@ -467,9 +533,12 @@ ros2 launch pct_planner_cpp_port pct_all.launch.py \
   end_x:=-9.68 end_y:=6.95 end_z:=0.0
 ```
 
+
 ### 方式四：语义地图批量规划
 
+
 对语义拓扑图中的所有边自动生成轨迹：
+
 
 ```bash
 # 使用默认参数
@@ -485,6 +554,7 @@ ros2 run pct_planner_cpp_port planner_semantic_node \
   -p use_quintic:=true
 ```
 
+
 **功能说明**：
 
 1. 从 `input_json` 读取语义拓扑图（节点、边）
@@ -492,11 +562,15 @@ ros2 run pct_planner_cpp_port planner_semantic_node \
 3. 将规划结果写入 `output_json`
 4. 以 1Hz 频率循环发布各边轨迹到 `/pct_path3` 话题
 
+
 ---
+
 
 ## ⚙️ 配置参数说明
 
+
 ### 断层建图参数 (`config/scene_default.yaml`)
+
 
 ```yaml
 pct_tomography_cpp:
@@ -518,7 +592,9 @@ pct_tomography_cpp:
     precision_mode: float16 # 精度模式: float16 或 float32
 ```
 
+
 ### Launch 参数速查
+
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -536,11 +612,15 @@ pct_tomography_cpp:
 | `pcd_path` | string | - | 轨迹 PCD 输出路径 |
 | `use_quintic` | bool | true | 使用五次多项式轨迹优化 |
 
+
 ---
+
 
 ## 📡 ROS2 话题参考
 
+
 ### 订阅话题
+
 
 | 话题 | 类型 | 说明 |
 |------|------|------|
@@ -548,7 +628,9 @@ pct_tomography_cpp:
 | `/start_pos` | `geometry_msgs/Point` | 起点坐标 |
 | `/end_pos` | `geometry_msgs/Point` | 终点坐标 |
 
+
 ### 发布话题
+
 
 | 话题 | 类型 | 说明 |
 |------|------|------|
@@ -559,15 +641,21 @@ pct_tomography_cpp:
 | `/pct_path3` | `nav_msgs/Path` | 规划路径（语义地图模式，循环发布各边轨迹） |
 | `/path_marker` | `visualization_msgs/Marker` | 路径可视化标记 |
 
+
 ---
+
 
 ## ❓ 常见问题 FAQ
 
+
 ### Q1: 编译时找不到 CUDA
+
 
 **错误信息**: `Could not find CUDA` 或 `nvcc not found`
 
+
 **解决方法**:
+
 
 ```bash
 # 确认 CUDA 安装路径
@@ -581,11 +669,15 @@ colcon build --packages-select pct_planner_cpp_port \
     -DCUDAToolkit_ROOT=/usr/local/cuda-12.8
 ```
 
+
 ### Q2: 运行时找不到 GTSAM
+
 
 **错误信息**: `libgtsam.so.4: cannot open shared object file`
 
+
 **解决方法**:
+
 
 ```bash
 # 设置库路径
@@ -597,19 +689,26 @@ export GTSAM_DIR=$PWD/planner_lib/3rdparty/gtsam-4.1.1/install/lib/cmake/GTSAM
 colcon build --packages-select pct_planner_cpp_port
 ```
 
+
 ### Q3: RViz 非常卡顿
+
 
 **原因**: 点云数据量过大
 
+
 **解决方法**:
+
 
 1. 保持 `surface_only:=true`（默认已开启）
 2. 在 RViz 中隐藏 `/tomogram` 话题
 3. 降低 Decay Time 参数
 
+
 ### Q4: Launch 参数不生效
 
+
 **解决方法**:
+
 
 ```bash
 # 方法1: 清理后重新编译
@@ -621,19 +720,25 @@ colcon build --packages-select pct_planner_cpp_port
 ros2 launch ./launch/pct_all.launch.py ...
 ```
 
+
 ### Q5: 规划失败，显示 "No valid path found"
 
+
 **可能原因**:
+
 
 1. 起点或终点在障碍物内
 2. 起终点之间确实不可达
 3. 参数设置过于严格
 
+
 **解决方法**:
+
 
 1. 检查起终点坐标是否在点云范围内
 2. 在 RViz 中查看 `/tomogram` 确认可通行区域
 3. 尝试调整参数：
+
 
    ```yaml
    slope_max: 0.5      # 放宽坡度限制
@@ -641,9 +746,12 @@ ros2 launch ./launch/pct_all.launch.py ...
    safe_margin: 0.2    # 减小安全边距
    ```
 
+
 ---
 
+
 ## 📁 项目结构
+
 
 ```
 PctPlanner_Cpp/
@@ -706,21 +814,30 @@ PctPlanner_Cpp/
 └── log/                    # 📝 colcon 编译日志（已 gitignore）
 ```
 
+
 > ⚠️ **注意**：`build/`、`install/`、`log/` 目录为编译产物，已添加到 `.gitignore`，不会提交到版本控制。
+
 
 ---
 
+
 ## 📄 版权与致谢
+
 
 本项目基于开源许可证发布，详见 LICENSE 文件。
 
+
 ### 依赖项目
+
 
 - [ROS2 Foxy](https://docs.ros.org/en/foxy/) — 机器人操作系统
 - [PCL](https://pointclouds.org/) — 点云处理库
 - [GTSAM](https://gtsam.org/) — 因子图优化库
 - [CUDA](https://developer.nvidia.com/cuda-toolkit) — GPU 并行计算
 
+
 ---
 
+
 📝 **如有问题，欢迎提交 Issue 或 Pull Request！**
+
