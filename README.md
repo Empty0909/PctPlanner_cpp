@@ -495,13 +495,13 @@ export LD_LIBRARY_PATH=$PWD/planner_lib:$PWD/planner_lib/3rdparty/gtsam-4.1.1/in
 ```bash
 # 终端 1: 发布示例点云
 ros2 run pct_planner_cpp_port pcd_publisher \
-  --ros-args -p pcd_path:=$PWD/rsc/pcd/nyby_ground_pct_v1.pcd
+  --ros-args -p pcd_path:=$PWD/rsc/pcd/nyby_ground_pct_v0.pcd
 
 
 # 终端 2: 运行断层建图
 ros2 run pct_planner_cpp_port tomography_node \
   --ros-args --params-file $PWD/config/scene_nyby_ground.yaml \
-  -p output_path:=$PWD/rsc/tomogram/nyby_ground_cost_map_v1.bin
+  -p output_path:=$PWD/rsc/tomogram/nyby_ground_cost_map_v0.bin
 
 
 # 终端 3: 运行路径规划
@@ -526,7 +526,7 @@ ros2 launch pct_planner_cpp_port pct_all.launch.py \
   enable_planner:=false \
   enable_pcd_publisher:=false \
   enable_planner_direct:=true \
-  tomo_path:=$PWD/rsc/tomogram/nyby_ground_cost_map.bin \
+  tomo_path:=$PWD/rsc/tomogram/nyby_ground_cost_map_v0.bin \
   pcd_path:=$PWD/trajectory_offline.pcd \
   publish_start_end:=true \
   start_x:=5.63 start_y:=15.0 start_z:=0.0 \

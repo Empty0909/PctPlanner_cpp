@@ -205,100 +205,182 @@ private:
     }
   }
 
-  // 解析 tomogram 并发布可视化点云
+  // 解析 tomogram 并发布可视化点云 - 与 tomography_node::PublishSurfaceCloud
+  // 完全一致
   void PublishTomogramVisualization() {
     if (tomogram_buffer_.empty())
       return;
 
-    PlannerInput input;
-    try {
-      ParseTomogram(tomogram_buffer_, input);
-    } catch (const std::exception &e) {
-      RCLCPP_ERROR(get_logger(), "Tomogram parse for viz failed: %s", e.what());
-      return;
-    }
+    // 直接从二进制解析，不使用 PlannerInput（其矩阵布局不同）
+    auto view = tomogram_format::Deserialize(tomogram_buffer_);
+    const auto &h = view.header;
+    const auto mode = tomogram_format::GetPrecisionMode(h);
+    const size_t scalar_bytes = tomogram_format::ScalarBytes(mode);
 
-    // 收集可通行点（trav cost < 阈值）
-    const double cost_threshold = 50.0;       // 可通行阈值
-    std::vector<std::array<float, 4>> points; // x, y, z, intensity
+    const uint32_t n_slice = h.n_slice;
+    const uint32_t dim_x = h.dim_x;
+    const uint32_t dim_y = h.dim_y;
+    const float resolution = h.resolution;
+    const float cx = h.center_x;
+    const float cy = h.center_y;
+    const float slice_dh = h.slice_dh;
 
-    // 坐标偏移：与 tomography_node 一致
-    const float ox = static_cast<float>(input.dim_x) / 2.0f;
-    const float oy = static_cast<float>(input.dim_y) / 2.0f;
+    const size_t plane = static_cast<size_t>(dim_x) * dim_y;
+    const size_t layer_stride =
+        static_cast<size_t>(n_slice) * plane * scalar_bytes;
 
-    for (uint32_t s = 0; s < input.n_slice; ++s) {
-      for (uint32_t x = 0; x < input.dim_x; ++x) {
-        for (uint32_t y = 0; y < input.dim_y; ++y) {
-          // 与 planner_common.hpp 中的矩阵布局一致: row = s * dim_y + y, col =
-          // x
-          const size_t row = static_cast<size_t>(s) * input.dim_y + y;
-          double cost = input.trav(row, x);
-          double elev = input.elev_g(row, x);
+    // 读取 trav 和 elev_g 原始数组
+    std::vector<float> trav(n_slice * plane);
+    std::vector<float> elev_g(n_slice * plane);
 
-          if (cost < cost_threshold && elev > -50.0 && elev < 1e5) {
-            // 转换到世界坐标 - 与 tomography_node::PublishAllCloud 一致
-            float wx = (static_cast<float>(x) - ox) *
-                           static_cast<float>(input.resolution) +
-                       static_cast<float>(input.center_x);
-            float wy = (static_cast<float>(y) - oy) *
-                           static_cast<float>(input.resolution) +
-                       static_cast<float>(input.center_y);
-            float wz = static_cast<float>(elev);
+    for (uint32_t s = 0; s < n_slice; ++s) {
+      for (uint32_t x = 0; x < dim_x; ++x) {
+        for (uint32_t y = 0; y < dim_y; ++y) {
+          // 文件布局: idx = s * plane + x * dim_y + y
+          const size_t idx_plane = static_cast<size_t>(s) * plane +
+                                   static_cast<size_t>(x) * dim_y + y;
+          const size_t base_offset = idx_plane * scalar_bytes;
 
-            points.push_back({wx, wy, wz, static_cast<float>(cost)});
+          // trav 在 layer 0, elev_g 在 layer 3
+          float t_val, eg_val;
+          if (mode == tomogram_format::PrecisionMode::FLOAT32) {
+            std::memcpy(&t_val, view.data + base_offset + 0 * layer_stride,
+                        sizeof(float));
+            std::memcpy(&eg_val, view.data + base_offset + 3 * layer_stride,
+                        sizeof(float));
+          } else {
+            uint16_t t_bits, eg_bits;
+            std::memcpy(&t_bits, view.data + base_offset + 0 * layer_stride,
+                        sizeof(uint16_t));
+            std::memcpy(&eg_bits, view.data + base_offset + 3 * layer_stride,
+                        sizeof(uint16_t));
+            Eigen::half t_h, eg_h;
+            std::memcpy(&t_h, &t_bits, sizeof(uint16_t));
+            std::memcpy(&eg_h, &eg_bits, sizeof(uint16_t));
+            t_val = static_cast<float>(t_h);
+            eg_val = static_cast<float>(eg_h);
           }
+
+          const size_t arr_idx = static_cast<size_t>(s) * plane +
+                                 static_cast<size_t>(x) * dim_y + y;
+          trav[arr_idx] = t_val;
+          elev_g[arr_idx] = eg_val;
         }
       }
     }
 
-    // 创建 PointCloud2 消息 - 手动设置字段
+    // 与 tomography_node::PublishSurfaceCloud 完全一致的遮挡处理
+    std::vector<std::vector<float>> vis_g(n_slice, std::vector<float>(plane));
+    std::vector<std::vector<float>> vis_t(n_slice, std::vector<float>(plane));
+
+    for (uint32_t s = 0; s < n_slice; ++s) {
+      std::copy(elev_g.begin() + static_cast<size_t>(s) * plane,
+                elev_g.begin() + static_cast<size_t>(s + 1) * plane,
+                vis_g[s].begin());
+      std::copy(trav.begin() + static_cast<size_t>(s) * plane,
+                trav.begin() + static_cast<size_t>(s + 1) * plane,
+                vis_t[s].begin());
+    }
+
+    // 遮挡处理：下层被上层遮挡时设为NaN
+    for (uint32_t s = 0; s + 1 < n_slice; ++s) {
+      for (size_t idx = 0; idx < plane; ++idx) {
+        const float dh = vis_g[s + 1][idx] - vis_g[s][idx];
+        if (dh < slice_dh) {
+          vis_g[s][idx] = std::numeric_limits<float>::quiet_NaN();
+          vis_t[s + 1][idx] = std::min(vis_t[s][idx], vis_t[s + 1][idx]);
+        }
+      }
+    }
+
+    // 收集可视化点
+    std::vector<float> buffer;
+    buffer.reserve(n_slice * plane * 4);
+
+    const float ox = static_cast<float>(dim_x) / 2.0f;
+    const float oy = static_cast<float>(dim_y) / 2.0f;
+
+    for (uint32_t s = 0; s < n_slice; ++s) {
+      for (uint32_t x = 0; x < dim_x; ++x) {
+        for (uint32_t y = 0; y < dim_y; ++y) {
+          const size_t idx = static_cast<size_t>(x) * dim_y + y;
+
+          // 被遮挡的跳过
+          if (std::isnan(vis_g[s][idx]))
+            continue;
+
+          // elev_g 为 NaN 或异常值跳过
+          if (std::isnan(elev_g[s * plane + idx]) || vis_g[s][idx] < -90.0f)
+            continue;
+
+          const float wx = (static_cast<float>(x) - ox) * resolution + cx;
+          const float wy = (static_cast<float>(y) - oy) * resolution + cy;
+          const float wz = vis_g[s][idx];
+          const float inten = std::min(vis_t[s][idx], 50.0f);
+
+          buffer.push_back(wx);
+          buffer.push_back(wy);
+          buffer.push_back(wz);
+          buffer.push_back(inten);
+        }
+      }
+    }
+
+    if (buffer.empty())
+      return;
+
+    // 创建 PointCloud2 消息
     tomo_cloud_msg_.header.frame_id = "map";
     tomo_cloud_msg_.header.stamp = now();
     tomo_cloud_msg_.height = 1;
-    tomo_cloud_msg_.width = static_cast<uint32_t>(points.size());
-    tomo_cloud_msg_.is_dense = true;
+    tomo_cloud_msg_.width = static_cast<uint32_t>(buffer.size() / 4);
     tomo_cloud_msg_.is_bigendian = false;
+    tomo_cloud_msg_.is_dense = false;
+    tomo_cloud_msg_.point_step = sizeof(float) * 4;
+    tomo_cloud_msg_.row_step =
+        tomo_cloud_msg_.point_step * tomo_cloud_msg_.width;
 
-    // 手动设置字段描述符: x, y, z, intensity
     tomo_cloud_msg_.fields.resize(4);
     tomo_cloud_msg_.fields[0].name = "x";
     tomo_cloud_msg_.fields[0].offset = 0;
     tomo_cloud_msg_.fields[0].datatype = sensor_msgs::msg::PointField::FLOAT32;
     tomo_cloud_msg_.fields[0].count = 1;
-
     tomo_cloud_msg_.fields[1].name = "y";
     tomo_cloud_msg_.fields[1].offset = 4;
     tomo_cloud_msg_.fields[1].datatype = sensor_msgs::msg::PointField::FLOAT32;
     tomo_cloud_msg_.fields[1].count = 1;
-
     tomo_cloud_msg_.fields[2].name = "z";
     tomo_cloud_msg_.fields[2].offset = 8;
     tomo_cloud_msg_.fields[2].datatype = sensor_msgs::msg::PointField::FLOAT32;
     tomo_cloud_msg_.fields[2].count = 1;
-
     tomo_cloud_msg_.fields[3].name = "intensity";
     tomo_cloud_msg_.fields[3].offset = 12;
     tomo_cloud_msg_.fields[3].datatype = sensor_msgs::msg::PointField::FLOAT32;
     tomo_cloud_msg_.fields[3].count = 1;
 
-    tomo_cloud_msg_.point_step = 16; // 4 floats * 4 bytes
-    tomo_cloud_msg_.row_step =
-        tomo_cloud_msg_.point_step * tomo_cloud_msg_.width;
     tomo_cloud_msg_.data.resize(tomo_cloud_msg_.row_step);
 
-    // 填充数据
-    float *data_ptr = reinterpret_cast<float *>(tomo_cloud_msg_.data.data());
-    for (size_t i = 0; i < points.size(); ++i) {
-      data_ptr[i * 4 + 0] = points[i][0]; // x
-      data_ptr[i * 4 + 1] = points[i][1]; // y
-      data_ptr[i * 4 + 2] = points[i][2]; // z
-      data_ptr[i * 4 + 3] = points[i][3]; // intensity
+    // 使用迭代器填充数据
+    sensor_msgs::PointCloud2Iterator<float> iter_x(tomo_cloud_msg_, "x");
+    sensor_msgs::PointCloud2Iterator<float> iter_y(tomo_cloud_msg_, "y");
+    sensor_msgs::PointCloud2Iterator<float> iter_z(tomo_cloud_msg_, "z");
+    sensor_msgs::PointCloud2Iterator<float> iter_i(tomo_cloud_msg_,
+                                                   "intensity");
+
+    for (size_t i = 0; i < buffer.size();) {
+      *iter_x = buffer[i++];
+      *iter_y = buffer[i++];
+      *iter_z = buffer[i++];
+      *iter_i = buffer[i++];
+      ++iter_x;
+      ++iter_y;
+      ++iter_z;
+      ++iter_i;
     }
 
     tomo_pub_->publish(tomo_cloud_msg_);
-    RCLCPP_INFO(get_logger(),
-                "Published tomogram visualization with %zu points",
-                points.size());
+    RCLCPP_INFO(get_logger(), "Published tomogram visualization with %u points",
+                tomo_cloud_msg_.width);
   }
 
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
