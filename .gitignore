@@ -1,6 +1,6 @@
 # build artifacts
 build/
-install/
+/install/
 log/
 .colcon*
 CMakeCache.txt
@@ -26,6 +26,8 @@ __pycache__/
 .DS_Store
 
 # third-party build leftovers
-planner_lib/3rdparty/**/build/Z
-# keep vendored installs committed (gtsam install) to avoid rebuild
+planner_lib/3rdparty/**/build/
 planner_lib/build/
+
+# keep vendored gtsam install committed (required for runtime)
+!planner_lib/3rdparty/gtsam-4.1.1/install/
