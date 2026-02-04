@@ -14,6 +14,9 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/point_field.hpp>
+#include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <std_msgs/msg/byte_multi_array.hpp>
 
 #include "ele_planner/offline_ele_planner.h"
@@ -36,6 +39,12 @@ public:
 
     // 离线模式：启动即读 tomogram 文件，等待起终点后规划
     path_pub_ = create_publisher<nav_msgs::msg::Path>("/pct_path2", 10);
+    // 同时发布到 /pct_path 以兼容 RViz 配置
+    path_pub_compat_ = create_publisher<nav_msgs::msg::Path>("/pct_path", 10);
+    // 发布 tomogram 可视化点云
+    tomo_pub_ =
+        create_publisher<sensor_msgs::msg::PointCloud2>("/tomogram", 10);
+
     start_sub_ = create_subscription<geometry_msgs::msg::Point>(
         "/start_pos", 10,
         std::bind(&PlannerDirectNode::OnStart, this, std::placeholders::_1));
@@ -54,6 +63,8 @@ public:
     } else {
       RCLCPP_INFO(get_logger(), "Loaded tomogram file: %s (%zu bytes)",
                   tomo_path_.c_str(), tomogram_buffer_.size());
+      // 解析并发布 tomogram 可视化
+      PublishTomogramVisualization();
     }
   }
 
@@ -185,9 +196,114 @@ private:
       pose.header.stamp = last_path_.header.stamp;
     }
     path_pub_->publish(last_path_);
+    path_pub_compat_->publish(last_path_);
+
+    // 周期性重发 tomogram 可视化
+    if (tomo_cloud_msg_.data.size() > 0) {
+      tomo_cloud_msg_.header.stamp = now();
+      tomo_pub_->publish(tomo_cloud_msg_);
+    }
+  }
+
+  // 解析 tomogram 并发布可视化点云
+  void PublishTomogramVisualization() {
+    if (tomogram_buffer_.empty())
+      return;
+
+    PlannerInput input;
+    try {
+      ParseTomogram(tomogram_buffer_, input);
+    } catch (const std::exception &e) {
+      RCLCPP_ERROR(get_logger(), "Tomogram parse for viz failed: %s", e.what());
+      return;
+    }
+
+    // 收集可通行点（trav cost < 阈值）
+    const double cost_threshold = 50.0;       // 可通行阈值
+    std::vector<std::array<float, 4>> points; // x, y, z, intensity
+
+    // 坐标偏移：与 tomography_node 一致
+    const float ox = static_cast<float>(input.dim_x) / 2.0f;
+    const float oy = static_cast<float>(input.dim_y) / 2.0f;
+
+    for (uint32_t s = 0; s < input.n_slice; ++s) {
+      for (uint32_t x = 0; x < input.dim_x; ++x) {
+        for (uint32_t y = 0; y < input.dim_y; ++y) {
+          // 与 planner_common.hpp 中的矩阵布局一致: row = s * dim_y + y, col =
+          // x
+          const size_t row = static_cast<size_t>(s) * input.dim_y + y;
+          double cost = input.trav(row, x);
+          double elev = input.elev_g(row, x);
+
+          if (cost < cost_threshold && elev > -50.0 && elev < 1e5) {
+            // 转换到世界坐标 - 与 tomography_node::PublishAllCloud 一致
+            float wx = (static_cast<float>(x) - ox) *
+                           static_cast<float>(input.resolution) +
+                       static_cast<float>(input.center_x);
+            float wy = (static_cast<float>(y) - oy) *
+                           static_cast<float>(input.resolution) +
+                       static_cast<float>(input.center_y);
+            float wz = static_cast<float>(elev);
+
+            points.push_back({wx, wy, wz, static_cast<float>(cost)});
+          }
+        }
+      }
+    }
+
+    // 创建 PointCloud2 消息 - 手动设置字段
+    tomo_cloud_msg_.header.frame_id = "map";
+    tomo_cloud_msg_.header.stamp = now();
+    tomo_cloud_msg_.height = 1;
+    tomo_cloud_msg_.width = static_cast<uint32_t>(points.size());
+    tomo_cloud_msg_.is_dense = true;
+    tomo_cloud_msg_.is_bigendian = false;
+
+    // 手动设置字段描述符: x, y, z, intensity
+    tomo_cloud_msg_.fields.resize(4);
+    tomo_cloud_msg_.fields[0].name = "x";
+    tomo_cloud_msg_.fields[0].offset = 0;
+    tomo_cloud_msg_.fields[0].datatype = sensor_msgs::msg::PointField::FLOAT32;
+    tomo_cloud_msg_.fields[0].count = 1;
+
+    tomo_cloud_msg_.fields[1].name = "y";
+    tomo_cloud_msg_.fields[1].offset = 4;
+    tomo_cloud_msg_.fields[1].datatype = sensor_msgs::msg::PointField::FLOAT32;
+    tomo_cloud_msg_.fields[1].count = 1;
+
+    tomo_cloud_msg_.fields[2].name = "z";
+    tomo_cloud_msg_.fields[2].offset = 8;
+    tomo_cloud_msg_.fields[2].datatype = sensor_msgs::msg::PointField::FLOAT32;
+    tomo_cloud_msg_.fields[2].count = 1;
+
+    tomo_cloud_msg_.fields[3].name = "intensity";
+    tomo_cloud_msg_.fields[3].offset = 12;
+    tomo_cloud_msg_.fields[3].datatype = sensor_msgs::msg::PointField::FLOAT32;
+    tomo_cloud_msg_.fields[3].count = 1;
+
+    tomo_cloud_msg_.point_step = 16; // 4 floats * 4 bytes
+    tomo_cloud_msg_.row_step =
+        tomo_cloud_msg_.point_step * tomo_cloud_msg_.width;
+    tomo_cloud_msg_.data.resize(tomo_cloud_msg_.row_step);
+
+    // 填充数据
+    float *data_ptr = reinterpret_cast<float *>(tomo_cloud_msg_.data.data());
+    for (size_t i = 0; i < points.size(); ++i) {
+      data_ptr[i * 4 + 0] = points[i][0]; // x
+      data_ptr[i * 4 + 1] = points[i][1]; // y
+      data_ptr[i * 4 + 2] = points[i][2]; // z
+      data_ptr[i * 4 + 3] = points[i][3]; // intensity
+    }
+
+    tomo_pub_->publish(tomo_cloud_msg_);
+    RCLCPP_INFO(get_logger(),
+                "Published tomogram visualization with %zu points",
+                points.size());
   }
 
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_compat_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr tomo_pub_;
   rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr start_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr end_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
@@ -204,6 +320,7 @@ private:
 
   std::vector<Eigen::Vector3d> current_traj_;
   nav_msgs::msg::Path last_path_;
+  sensor_msgs::msg::PointCloud2 tomo_cloud_msg_;
 };
 
 } // namespace pctplanner

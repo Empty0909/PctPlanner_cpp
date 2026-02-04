@@ -105,13 +105,18 @@ def generate_launch_description():
         ),
 
         # Offline planner (loads tomogram file)
+        # 注意：命令行参数放在 params_file 之后，确保优先级更高
         Node(
             condition=IfCondition(enable_planner_direct),
             package='pct_planner_cpp_port',
             executable='planner_direct_node',
             name='pct_planner_direct_cpp',
             output='screen',
-            parameters=[params_file, {'tomo_path': tomo_path, 'pcd_path': pcd_path}],
+            parameters=[
+                params_file,
+                {'tomo_path': tomo_path},
+                {'pcd_path': pcd_path},
+            ],
         ),
 
         # Sample point cloud publisher

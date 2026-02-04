@@ -102,7 +102,7 @@ target_link_libraries(planner_node
 )
 
 add_executable(planner_direct_node src/planner_direct_node.cpp)
-ament_target_dependencies(planner_direct_node rclcpp std_msgs geometry_msgs nav_msgs)
+ament_target_dependencies(planner_direct_node rclcpp std_msgs geometry_msgs nav_msgs sensor_msgs)
 target_link_libraries(planner_direct_node
   Eigen3::Eigen
   ${LIB_DIR}/libele_planner_lib.so
