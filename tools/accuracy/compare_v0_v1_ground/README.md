@@ -1,149 +1,141 @@
 # v0 vs v1 地图路径规划对比测试
 
-本目录包含用于对比 `nyby_ground_cost_map_v0.bin` 和 `nyby_ground_cost_map_v1.bin` 两个版本地图规划结果差异的工具脚本。
+对比 `nyby_ground_cost_map_v0.bin` 和 `nyby_ground_cost_map_v1.bin` 两个版本地图的规划结果差异。
+
+## 重要发现
+
+通过分析，两张地图的坐标系关系如下：
+
+### 坐标变换参数（基于3点手动标记）
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| θ | 15.778° | 旋转角度 |
+| tx | -11.537 m | X 方向平移 |
+| ty | -2.216 m | Y 方向平移 |
+| kx_z | 0.001921 | Z 与 x0 的系数 |
+| ky_z | -0.003825 | Z 与 y0 的系数 |
+| c_z | -0.141557 | Z 偏移常数 |
+
+### 变换公式
+
+```
+XY 变换: v1 = R(θ) @ v0 + T
+  x1 = cos(θ) * x0 - sin(θ) * y0 + tx
+  y1 = sin(θ) * x0 + cos(θ) * y0 + ty
+
+Z 变换 (平面拟合):
+  z1 = z0 + kx * x0 + ky * y0 + c_z
+```
+
+### 对齐统计
+
+| 指标 | 无变换 | 应用变换后 |
+|------|--------|-----------|
+| 二值一致率 | 67.0% | **82.3%** |
+| Traversability 精确匹配 (|Δt|<1) | 58.8% | **79.2%** |
+| Traversability RMSE | 21.46 | **8.99** |
+
+### 路径长度对比
+
+| 指标 | 值 |
+|------|-----|
+| v0 平均路径长度 | 72.34 m |
+| v1 平均路径长度 | 74.83 m |
+| v1/v0 平均比值 | 1.033 (v1 比 v0 长 3.3%) |
+| 路径长度相关系数 | 0.9956 |
 
 ## 目录结构
 
 ```
 compare_v0_v1_ground/
-├── README.md                     # 本文档
-├── run_v0_v1_compare_batch.py    # 主脚本：分批运行 v0 vs v1 对比测试
-├── plan_on_map_batch.py          # 工作脚本：单批次规划（被主脚本调用）
-└── generate_v0_test_cases.py     # 辅助脚本：在 v0 上生成有效测试用例
+├── README.md                      # 本文档
+├── batch_compare_simple.py        # 主脚本：v0 vs v1 对比测试
+├── compute_transform_from_points.py  # 从标记点计算变换
+├── generate_v0_test_cases.py      # 辅助脚本：生成测试用例
+└── results/
+    └── compare_3point_transform.json  # 最终测试结果
 ```
 
 ## 快速开始
 
-### 1. 使用现有测试用例对比 v0 和 v1
+### 运行 v0 vs v1 对比测试
 
 ```bash
 cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/accuracy
 
-python3 compare_v0_v1_ground/run_v0_v1_compare_batch.py \
-    --input data/nyby_ground_test_cases.csv \
-    --v0-bin /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/nyby_ground_cost_map_v0.bin \
-    --v1-bin /home/lzy/PctPlanner/PctPlanner_Cpp/rsc/tomogram/nyby_ground_cost_map_v1.bin \
-    --output results/v0_v1_comparison.json \
-    --batch-size 50 \
-    --limit 1000
+# 设置库路径
+export LD_LIBRARY_PATH=$PWD/../../planner_lib:$PWD/../../planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
+
+# 运行对比测试（应用坐标变换）
+python3 compare_v0_v1_ground/batch_compare_simple.py \
+    --csv data/nyby_v0_test_pairs.csv \
+    --v0 ../../rsc/tomogram/nyby_ground_cost_map_v0.bin \
+    --v1 ../../rsc/tomogram/nyby_ground_cost_map_v1.bin \
+    --transform \
+    --output compare_v0_v1_ground/results/comparison.json
 ```
 
-### 2. 生成新的测试用例（可选）
-
-如果需要在 v0 地图上生成新的测试用例（随机采样可通行栅格）：
+### 生成新的测试用例（可选）
 
 ```bash
-cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/accuracy/compare_v0_v1_ground
-
-python3 generate_v0_test_cases.py \
-    --num-cases 1000 \
-    --output ../data/v0_test_cases.csv
+python3 compare_v0_v1_ground/generate_v0_test_cases.py \
+    --num-cases 100 \
+    --output data/new_test_cases.csv
 ```
 
 ## 脚本说明
 
-### run_v0_v1_compare_batch.py（主脚本）
+### batch_compare_simple.py
 
-**功能**：分批对比测试 v0 和 v1 地图的规划结果
-
-**参数**：
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--input` | 输入测试用例 CSV 文件 | `data/nyby_ground_test_cases.csv` |
-| `--v0-bin` | v0 地图 bin 文件路径 | `.../nyby_ground_cost_map_v0.bin` |
-| `--v1-bin` | v1 地图 bin 文件路径 | `.../nyby_ground_cost_map_v1.bin` |
-| `--output` | 输出 JSON 结果文件 | 自动生成带时间戳的文件名 |
-| `--batch-size` | 每批处理的用例数 | 20 |
-| `--limit` | 最大测试用例数 | 全部 |
-
-**输出**：
-
-- JSON 格式的详细结果文件
-- Markdown 格式的统计报告（自动生成）
-
-**工作原理**：
-
-1. 将测试用例分成小批次
-2. 每批在独立子进程中运行（避免内存泄漏导致 OOM）
-3. 分别在 v0 和 v1 地图上规划
-4. 合并结果并生成统计报告
-
----
-
-### plan_on_map_batch.py（工作脚本）
-
-**功能**：在指定地图上规划单批测试用例
-
-**注意**：此脚本通常由 `run_v0_v1_compare_batch.py` 自动调用，一般不需要手动执行。
+**功能**：在 v0 和 v1 地图上分别规划，对比成功率和路径长度
 
 **参数**：
 
-| 参数 | 说明 |
-|------|------|
-| `--input` | 输入 CSV 文件 |
-| `--output` | 输出 JSON 文件 |
-| `--bin` | 地图 bin 文件路径 |
+| 参数 | 说明 | 必需 |
+|------|------|------|
+| `--csv` | 测试用例 CSV 文件 | 是 |
+| `--v0` | v0 地图 bin 文件路径 | 是 |
+| `--v1` | v1 地图 bin 文件路径 | 是 |
+| `--transform` | 应用 v0->v1 坐标变换 | 否 |
+| `--output` | 输出 JSON 文件 | 否 |
+| `--limit` | 限制测试用例数（0=全部） | 否 |
 
----
-
-### generate_v0_test_cases.py（辅助脚本）
-
-**功能**：在 v0 地图上随机采样可通行栅格生成测试用例（不验证路径可达性）
-
-**参数**：
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--num-cases` | 生成的用例数 | 1000 |
-| `--output` | 输出 CSV 文件路径 | `../data/v0_test_cases.csv` |
-| `--bin` | 地图 bin 文件路径 | `.../nyby_ground_cost_map_v0.bin` |
-| `--min-distance` | 起终点最小距离（米） | 20.0 |
-| `--max-distance` | 起终点最大距离（米） | 300.0 |
-| `--seed` | 随机种子 | 42 |
-
-**输出格式**（CSV）：
+**最新测试结果（应用变换后）**：
 
 ```
-case_id,start_x,start_y,start_z,start_yaw,goal_x,goal_y,goal_z,goal_yaw
+总用例数: 110
+v0 成功: 110 (100.0%)
+v1 成功: 110 (100.0%)
+两者都成功: 110
+
+路径长度对比:
+  v0 平均: 72.34 m
+  v1 平均: 74.83 m
+  v1/v0 比值: 1.034
 ```
 
-## 测试用例格式
+### compute_transform_from_points.py
 
-输入 CSV 文件需要包含以下列：
+**功能**：根据用户手动标记的对应点计算 v0 -> v1 坐标变换
 
-- `case_id`：用例 ID
-- `start_x`, `start_y`, `start_z`：起点坐标
-- `start_yaw`：起点朝向（弧度）
-- `goal_x`, `goal_y`, `goal_z`：终点坐标
-- `goal_yaw`：终点朝向（弧度）
+**方法**：使用 Procrustes analysis (SVD) 计算最优刚性变换
 
-可选列：
+**参考点**（在 rviz2 中标记）：
 
-- `v0_length`：v0 上的路径长度（如果已经计算过）
+| 点 | v0 坐标 | v1 坐标 |
+|---|---------|---------|
+| 1 | (-47.3, -1.94, -0.101) | (-56.5, -16.8, -0.326) |
+| 2 | (9.86, -105.0, 0.416) | (26.6, -101.0, 0.695) |
+| 3 | (40.6, 6.65, -0.276) | (25.6, 15.5, -0.365) |
 
-## 结果解读
+### generate_v0_test_cases.py
 
-统计报告包含以下指标：
+**功能**：在 v0 地图上随机采样可通行栅格生成测试用例
 
-| 指标 | 说明 |
-|------|------|
-| 两者都成功 | v0 和 v1 都规划成功的用例数 |
-| 仅 v0 成功 | 只有 v0 规划成功（v1 失败）的用例数 |
-| 仅 v1 成功 | 只有 v1 规划成功（v0 失败）的用例数 |
-| 两者都失败 | v0 和 v1 都规划失败的用例数 |
-| 平均路径长度差异 | 两者都成功时，v1 路径长度 - v0 路径长度的平均值 |
+## 结论
 
-## 注意事项
-
-1. **C++ 库验证**：脚本会自动验证加载的是 C++ 版本的规划库（位于 `PctPlanner_Cpp/planner_lib/`），而非 Python 版本。如果加载错误版本，脚本会报错退出。
-
-2. **内存使用**：脚本采用分批子进程方式运行，避免内存泄漏导致 OOM。建议 `--batch-size` 保持在 20-50 之间。
-
-3. **运行时间**：每批次约需 30-60 秒，1000 个用例约需 10-20 分钟。
-
-4. **测试用例来源**：测试用例是在地图上随机采样可通行区域生成的，**没有验证路径可达性**。因此：
-   - 规划成功率预期约为 10-20%
-   - 这是正常现象，因为随机起终点不保证存在可行路径
-
-5. **无需设置环境变量**：`generate_v0_test_cases.py` 只读取 bin 文件，不需要加载规划库。
+1. **v0 和 v1 地图存在坐标变换**：旋转 15.78° + 平移 + Z 平面倾斜
+2. **应用变换后规划成功率一致**：两者都达到 100%
+3. **路径长度高度相关**（r=0.9956），v1 平均比 v0 长 3.3%
+4. **地图内容一致性约 82%**，剩余差异来自不同采集/处理

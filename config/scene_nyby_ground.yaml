@@ -13,9 +13,9 @@ pct_tomography_cpp:
     interval_free: 0.65     # 无惩罚间隙阈值（米）
     slope_max: 0.36         # 最大坡度
     step_max: 0.2           # 可跨越的最大台阶高度差（米）
-    standable_ratio: 0.1    # 邻域可站立比例阈值
+    standable_ratio: 0.2    # 邻域可站立比例阈值
     cost_barrier: 50.0      # 代价屏障阈值
 
     # 膨胀参数
-    safe_margin: 1.0        # 安全边界（米）
-    inflation: 0.2          # 膨胀附加成本
+    safe_margin: 0.25        # 安全边界（米）
+    inflation: 0.15          # 膨胀附加成本

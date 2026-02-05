@@ -72,22 +72,24 @@ inline void ParseTomogram(const std::vector<uint8_t> &buffer,
   }
 
   const size_t plane = static_cast<size_t>(h.dim_x) * h.dim_y;
-  const size_t rows = static_cast<size_t>(h.n_slice) * h.dim_y;
-  out.trav.resize(rows, h.dim_x);
-  out.trav_gx.resize(rows, h.dim_x);
-  out.trav_gy.resize(rows, h.dim_x);
-  out.elev_g.resize(rows, h.dim_x);
-  out.elev_c.resize(rows, h.dim_x);
-  out.gateway.resize(rows, h.dim_x);
+  // 与 Python reshape(-1, trav.shape[-1]) 一致:
+  // Python: trav.shape = (n_slice, dim_x, dim_y) -> (n_slice * dim_x, dim_y)
+  // 即 rows = n_slice * dim_x, cols = dim_y
+  const size_t rows = static_cast<size_t>(h.n_slice) * h.dim_x;
+  out.trav.resize(rows, h.dim_y);
+  out.trav_gx.resize(rows, h.dim_y);
+  out.trav_gy.resize(rows, h.dim_y);
+  out.elev_g.resize(rows, h.dim_y);
+  out.elev_c.resize(rows, h.dim_y);
+  out.gateway.resize(rows, h.dim_y);
 
   const size_t layer_stride =
       static_cast<size_t>(h.n_slice) * plane * scalar_bytes;
-  // 数据布局与 Python 一致: [layer][slice][dim_x][dim_y]
+  // 数据布局: [layer][slice][dim_x][dim_y]
   // 文件中线性索引: slice * plane + x * dim_y + y
   for (uint32_t s = 0; s < h.n_slice; ++s) {
     for (uint32_t x = 0; x < h.dim_x; ++x) {
       for (uint32_t y = 0; y < h.dim_y; ++y) {
-        // 文件中的索引: dim_y * x + y
         const size_t idx_plane = s * plane + x * h.dim_y + y;
         const size_t base_offset = idx_plane * scalar_bytes;
         double trav =
@@ -97,14 +99,14 @@ inline void ParseTomogram(const std::vector<uint8_t> &buffer,
         double eg = ReadScalar(view.data, base_offset + 3 * layer_stride, mode);
         double ec = ReadScalar(view.data, base_offset + 4 * layer_stride, mode);
 
-        // 输出矩阵: row = slice * dim_y + y, col = x
+        // 输出矩阵: row = slice * dim_x + x, col = y
         // 与 Python planner_wrapper.py 中的 reshape(-1, trav.shape[-1]) 一致
-        const size_t row = static_cast<size_t>(s) * h.dim_y + y;
-        out.trav(row, x) = trav;
-        out.trav_gx(row, x) = gx;
-        out.trav_gy(row, x) = gy;
-        out.elev_g(row, x) = eg;
-        out.elev_c(row, x) = ec;
+        const size_t row = static_cast<size_t>(s) * h.dim_x + x;
+        out.trav(row, y) = trav;
+        out.trav_gx(row, y) = gx;
+        out.trav_gy(row, y) = gy;
+        out.elev_g(row, y) = eg;
+        out.elev_c(row, y) = ec;
       }
     }
   }
@@ -116,18 +118,19 @@ inline void ParseTomogram(const std::vector<uint8_t> &buffer,
       out.elev_c.unaryExpr([](double v) { return std::isnan(v) ? 1e6 : v; });
 
   // gateway 判定与 Python 一致：跨层代价突变且地面高度连续时视为“可穿越”。
+  // 矩阵布局: (n_slice * dim_x, dim_y), 索引: row = s * dim_x + x, col = y
   out.gateway.setZero();
   for (uint32_t s = 0; s + 1 < h.n_slice; ++s) {
-    for (uint32_t y = 0; y < h.dim_y; ++y) {
-      const size_t row = static_cast<size_t>(s) * h.dim_y + y;
-      const size_t row_next = static_cast<size_t>(s + 1) * h.dim_y + y;
-      for (uint32_t x = 0; x < h.dim_x; ++x) {
-        double diff_t = out.trav(row_next, x) - out.trav(row, x);
-        double diff_g = std::abs(out.elev_g(row_next, x) - out.elev_g(row, x));
+    for (uint32_t x = 0; x < h.dim_x; ++x) {
+      const size_t row = static_cast<size_t>(s) * h.dim_x + x;
+      const size_t row_next = static_cast<size_t>(s + 1) * h.dim_x + x;
+      for (uint32_t y = 0; y < h.dim_y; ++y) {
+        double diff_t = out.trav(row_next, y) - out.trav(row, y);
+        double diff_g = std::abs(out.elev_g(row_next, y) - out.elev_g(row, y));
         if (diff_t < -8.0 && diff_g < 0.1)
-          out.gateway(row, x) = 2; // 通往上一层
+          out.gateway(row, y) = 2; // 通往上一层
         if (diff_t > 8.0 && diff_g < 0.1)
-          out.gateway(row_next, x) = -2; // 通往下一层
+          out.gateway(row_next, y) = -2; // 通往下一层
       }
     }
   }

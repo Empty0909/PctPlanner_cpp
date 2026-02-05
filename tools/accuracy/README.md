@@ -1,22 +1,46 @@
 # PctPlanner 精度测试工具
 
-本目录包含用于对比测试 C++ 版本和 Python 版本 PctPlanner 规划器的工具集。
+本目录包含用于测试和对比 PctPlanner 规划器的工具集。
 
 ## 目录结构
 
 ```
 accuracy/
-├── README.md                 # 本说明文件
-├── run_batch.py              # 批量运行（避免内存泄漏）
-├── generate_test_cases.py    # 测试用例生成器
-├── run_python_version.py     # Python 版本规划测试（被 run_batch.py 调用）
-├── run_cpp_version.py        # C++ 版本规划测试（被 run_batch.py 调用）
-├── compare_versions.py       # 结果对比分析
-├── data/                     # 测试数据目录
-│   └── *.csv                 # 测试用例文件
-└── results/                  # 测试结果目录
-    ├── *_results.json
-    └── *_comparison.md
+├── README.md                     # 本说明文件
+├── run_batch.py                  # 批量运行 Python/C++ 版本测试
+├── generate_test_cases.py        # 测试用例生成器
+├── run_python_version.py         # Python 版本规划测试（被 run_batch.py 调用）
+├── run_cpp_version.py            # C++ 版本规划测试（被 run_batch.py 调用）
+├── compare_versions.py           # Python vs C++ 结果对比分析
+├── compare_v0_v1_ground/         # v0 vs v1 地图对比测试
+│   ├── batch_compare_simple.py   # v0 vs v1 对比主脚本
+│   ├── generate_v0_test_cases.py # 生成测试用例
+│   └── results/                  # 测试结果
+├── data/                         # 测试数据目录
+│   └── *.csv                     # 测试用例文件
+└── results/                      # 测试结果目录
+    └── *.json, *.md
+```
+
+## 测试类型
+
+### 1. Python vs C++ 版本对比
+
+对比 Python 版本和 C++ 版本规划器的结果差异（成功率、轨迹、性能）。
+
+详见下方 "批量测试" 部分。
+
+### 2. v0 vs v1 地图对比
+
+对比不同版本地图的规划成功率。详见 [compare_v0_v1_ground/README.md](compare_v0_v1_ground/README.md)。
+
+```bash
+cd /home/lzy/PctPlanner/PctPlanner_Cpp/tools/accuracy
+export LD_LIBRARY_PATH=$PWD/../../planner_lib:$PWD/../../planner_lib/3rdparty/gtsam-4.1.1/install/lib:$LD_LIBRARY_PATH
+python3 compare_v0_v1_ground/batch_compare_simple.py \
+    --csv data/nyby_v0_test_pairs.csv \
+    --v0 ../../rsc/tomogram/nyby_ground_cost_map_v0.bin \
+    --v1 ../../rsc/tomogram/nyby_ground_cost_map_v1.bin
 ```
 
 ## 快速开始

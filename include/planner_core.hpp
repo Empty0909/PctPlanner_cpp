@@ -88,6 +88,37 @@ public:
       return result;
     }
 
+    // 调试日志：输出栅格索引和代价值
+    // 矩阵布局: (n_slice * dim_x, dim_y)，row = layer * dim_x + x, col = y
+    {
+      const size_t s_row =
+          static_cast<size_t>(start_idx[0]) * input_.dim_x + start_idx[2];
+      const size_t g_row =
+          static_cast<size_t>(goal_idx[0]) * input_.dim_x + goal_idx[2];
+      double s_trav = input_.trav(s_row, start_idx[1]);
+      double g_trav = input_.trav(g_row, goal_idx[1]);
+      double s_elev_g = input_.elev_g(s_row, start_idx[1]);
+      double g_elev_g = input_.elev_g(g_row, goal_idx[1]);
+      double s_elev_c = input_.elev_c(s_row, start_idx[1]);
+      double g_elev_c = input_.elev_c(g_row, goal_idx[1]);
+      std::cerr << "[PlannerCore] Start: world(" << start.x << ", " << start.y
+                << ", " << start.z << ") -> shifted_z=" << start_shifted.z
+                << " -> grid(layer=" << start_idx[0] << ", y=" << start_idx[1]
+                << ", x=" << start_idx[2] << "), trav=" << s_trav
+                << ", elev_g=" << s_elev_g << ", elev_c=" << s_elev_c
+                << std::endl;
+      std::cerr << "[PlannerCore] Goal:  world(" << end.x << ", " << end.y
+                << ", " << end.z << ") -> shifted_z=" << end_shifted.z
+                << " -> grid(layer=" << goal_idx[0] << ", y=" << goal_idx[1]
+                << ", x=" << goal_idx[2] << "), trav=" << g_trav
+                << ", elev_g=" << g_elev_g << ", elev_c=" << g_elev_c
+                << std::endl;
+      std::cerr << "[PlannerCore] Matrix dims: trav(" << input_.trav.rows()
+                << "x" << input_.trav.cols() << "), n_slice=" << input_.n_slice
+                << ", dim_x=" << input_.dim_x << ", dim_y=" << input_.dim_y
+                << std::endl;
+    }
+
     // 创建规划器并初始化地图
     OfflineElePlanner planner(config_.max_heading_rate, config_.use_quintic);
     Eigen::MatrixXd gateway_d = input_.gateway.cast<double>();
